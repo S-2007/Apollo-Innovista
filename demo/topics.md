@@ -1,7 +1,7 @@
 # Demo topics
 
-The web app's two "Demo" buttons read the `**Topic:**` lines below (`GET /api/demo-topics`).
-Keep the headings and the `**Topic:**` lines in this format.
+The web app's demo buttons read this file (`GET /api/demo-topics`): each `## Topic <id>: <title>` heading is one
+topic, its `**Topic:**` line is the text, and its one-line `Settings:` line is shown as a note. Keep this format.
 
 Before each demo run, click **Clear cache** in the app (or `curl -X POST http://127.0.0.1:8000/api/cache/clear`).
 
@@ -26,8 +26,7 @@ deterministic, so in a rare run Hermes may accept round 1. Run it again if that 
 
 **Topic:** How are AI chatbots used to give farming advice to Indian farmers?
 
-Settings: max rounds **1**, HITL off. Start the backend with the demo switch
-`APOLLO_DEMO_FAIL_SUBQUESTION=2` (see DEMO.md).
+Settings: max rounds **1**, HITL off. Needs the backend demo switch `APOLLO_DEMO_FAIL_SUBQUESTION=2` (see DEMO.md).
 
 Why a switch: live web search (Tavily, then Serper) practically never comes back empty. Probes with
 nonsense and 1,000+ character queries still returned 5 results. To *show* the failure path, the switch

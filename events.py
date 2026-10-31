@@ -1,35 +1,58 @@
-"""Turn LangGraph stream updates into the small, typed events the web UI shows.
+"""Turn LangGraph stream updates into the typed events of the frontend contract.
 
 The frontend never sees raw graph state: api.py feeds every
 `graph.stream(..., stream_mode="updates")` chunk through EventConverter and
-sends only the events below (each is {"type", "data", "ts"}).
+sends only these events. Each is {"type", "data", "ts"}; ts is epoch milliseconds.
 
-  plan             Apollo's plan: data.pending=True while waiting for human approval
-  search_started   a research round begins: round, queries
-  search_done      one query finished: query, new_sources, sources [{id, title, url}]
-  search_failed    one query returned nothing usable: query, reason
-  review           Hermes' verdict (complete, gaps, contradictions), a human gap
-                   decision, or Apollo's stop decision (stop_reason)
-  gaps_pending     waiting for human approval of Hermes' gap queries
-  section_written  one report section done: index, question, citations, not_found
-  verification     claim counts by status
-  contradictions   number of conflicts and the URL of the map (or null)
-  report_ready     the report can be fetched
-  error            warnings (fatal=False, e.g. a page could not be read) or a
-                   run failure (fatal=True). Shown as amber warnings, never stack traces.
-  complete         the run ended: status, stop_reason
+  plan             {sub_questions, awaiting_approval}
+  search_started   {round, index (1-based), total, query}; index 1 starts a round's batch
+  search_done      {round, query, result_count}   result_count = new sources from this query
+  search_failed    {round, query, reason}
+  review           {round, complete, gaps}        Hermes' verdict after a round
+  gaps_pending     {round, gaps}                  waiting for human approval of the gaps
+  section_written  {section, index, citations, not_found}
+  verification     {verified, partial, not_found, unchecked}   claim counts
+  contradictions   {count}
+  report_ready     {}
+  warning          {message, details}  NON-terminal: a problem the run survived
+                                        (unreadable page, rate limit). Shown amber.
+  error            {message}            terminal: the run failed
+  complete         {status: "complete" | "failed", stop_reason}
 
 Nodes return their FULL `findings` / `errors` lists, so the converter remembers
 how many it has already reported and only turns the new items into events.
 """
 
-from datetime import datetime, timezone
+import time
 
 from tools.text import NOT_FOUND, find_citations
 
+NODE_VERB = {
+    "apollo_plan": "planning",
+    "athena_search": "searching",
+    "hermes_review": "reviewing",
+    "review_plan": "applying your plan",
+    "review_gaps": "applying your decision",
+    "assemble": "writing",
+    "verify_claims": "verifying claims",
+}
+
 
 def make_event(type_: str, data: dict) -> dict:
-    return {"type": type_, "data": data, "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds")}
+    return {"type": type_, "data": data, "ts": int(time.time() * 1000)}
+
+
+def warning_event(messages: list[str], doing: str) -> dict:
+    n = len(messages)
+    summary = messages[0][:200] if n == 1 else f"{n} warnings while {doing}"
+    return make_event("warning", {"message": summary, "details": messages})
+
+
+def search_started_events(round_no: int, queries: list[str]) -> list[dict]:
+    return [
+        make_event("search_started", {"round": round_no, "index": i, "total": len(queries), "query": q})
+        for i, q in enumerate(queries, 1)
+    ]
 
 
 class EventConverter:
@@ -39,6 +62,8 @@ class EventConverter:
         self.n_searched = 0
         self.round = 1
         self.failed_queries: set[str] = set()
+        self.last_plan: list[str] = []
+        self.plan_awaiting = False
 
     # ------------------------------------------------------------ public
 
@@ -52,7 +77,8 @@ class EventConverter:
 
     def from_interrupt(self, payload: dict) -> list[dict]:
         if payload.get("type") == "approve_plan":
-            return [make_event("plan", {"plan": payload["plan"], "pending": True})]
+            self.plan_awaiting = True
+            return [make_event("plan", {"sub_questions": payload["plan"], "awaiting_approval": True})]
         if payload.get("type") == "approve_gaps":
             return [make_event("gaps_pending", {"round": payload["round"], "gaps": payload["gaps"]})]
         return []
@@ -60,14 +86,16 @@ class EventConverter:
     # ------------------------------------------------------------ per node
 
     def _apollo_plan(self, u: dict) -> list[dict]:
-        return [make_event("plan", {"plan": u["plan"], "pending": False, "approved": False})]
+        self.last_plan = list(u["plan"])
+        return [make_event("plan", {"sub_questions": u["plan"], "awaiting_approval": False})]
 
     def _review_plan(self, u: dict) -> list[dict]:
-        queries = [q["query"] for q in u.get("pending_queries", [])]
-        return [
-            make_event("plan", {"plan": u["plan"], "pending": False, "approved": True}),
-            make_event("search_started", {"round": 1, "queries": queries}),
-        ]
+        events = []
+        # Re-announce the plan only when it changes something: approval ends a wait, or the plan was edited.
+        if self.plan_awaiting or u["plan"] != self.last_plan:
+            events.append(make_event("plan", {"sub_questions": u["plan"], "awaiting_approval": False}))
+        self.plan_awaiting, self.last_plan = False, list(u["plan"])
+        return events + search_started_events(1, [q["query"] for q in u.get("pending_queries", [])])
 
     def _athena_search(self, u: dict) -> list[dict]:
         findings = u.get("findings", [])
@@ -82,80 +110,51 @@ class EventConverter:
         for q in queries:
             got = [f for f in new if f["query"] == q]
             search_errs = [e for e in new_errors if e.startswith("search[") and repr(q) in e]
-            if got:
-                events.append(
-                    make_event(
-                        "search_done",
-                        {
-                            "round": self.round,
-                            "query": q,
-                            "new_sources": len(got),
-                            "sources": [{"id": f["id"], "title": f["title"], "url": f["url"]} for f in got],
-                        },
-                    )
-                )
-            elif search_errs:
+            if not got and search_errs:
                 self.failed_queries.add(q)
                 events.append(make_event("search_failed", {"round": self.round, "query": q, "reason": search_errs[-1]}))
-            else:  # results came back, but every page was already collected earlier
-                events.append(make_event("search_done", {"round": self.round, "query": q, "new_sources": 0, "sources": []}))
+            else:  # 0 is possible: results came back, but every page was already collected earlier
+                events.append(make_event("search_done", {"round": self.round, "query": q, "result_count": len(got)}))
         return events
 
     def _hermes_review(self, u: dict) -> list[dict]:
         return [
             make_event(
                 "review",
-                {
-                    "round": self.round,
-                    "complete": u.get("hermes_complete", False),
-                    "gaps": [g["query"] for g in u.get("gaps", [])],
-                    "contradictions": len(u.get("contradictions", [])),
-                },
+                {"round": self.round, "complete": u.get("hermes_complete", False), "gaps": [g["query"] for g in u.get("gaps", [])]},
             )
         ]
 
-    def _review_gaps(self, u: dict) -> list[dict]:
-        if u.get("gaps_skipped"):
-            decision, gaps = "skipped", []
-        elif "gaps" in u:
-            decision, gaps = "edited", [g["query"] for g in u["gaps"]]
-        else:
-            decision, gaps = "approved", None
-        return [make_event("review", {"round": self.round, "gaps_decision": decision, "gaps": gaps})]
-
     def _decide(self, u: dict) -> list[dict]:
-        if "round_no" in u:
+        if "round_no" in u:  # another round: announce its queries; a stop is reported by "complete"
             self.round = u["round_no"]
-            queries = [q["query"] for q in u.get("pending_queries", [])]
-            return [make_event("search_started", {"round": self.round, "queries": queries})]
-        return [make_event("review", {"round": self.round, "stop_reason": u.get("stop_reason", ""), "status": u.get("status")})]
+            return search_started_events(self.round, [q["query"] for q in u.get("pending_queries", [])])
+        return []
 
     def _write_section(self, u: dict) -> list[dict]:
-        events = []
-        for s in u.get("sections", []):
-            events.append(
-                make_event(
-                    "section_written",
-                    {
-                        "index": s["index"],
-                        "question": s["question"],
-                        "citations": len(find_citations(s["text"])),
-                        "not_found": NOT_FOUND in s["text"].lower(),
-                    },
-                )
+        return [
+            make_event(
+                "section_written",
+                {
+                    "section": s["question"],
+                    "index": s["index"],
+                    "citations": len(find_citations(s["text"])),
+                    "not_found": NOT_FOUND in s["text"].lower(),
+                },
             )
-        return events
+            for s in u.get("sections", [])
+        ]
 
     def _verify_claims(self, u: dict) -> list[dict]:
         counts = {k: 0 for k in ("verified", "partial", "not_found", "unchecked")}
         for c in u.get("claims", []):
             counts[c["status"]] = counts.get(c["status"], 0) + 1
-        return [make_event("verification", {"total": len(u.get("claims", [])), "counts": counts})]
+        return [make_event("verification", counts)]
 
     # ------------------------------------------------------------ helpers
 
     def _warnings(self, node: str, u: dict) -> list[dict]:
-        """New non-fatal errors as ONE amber warning event per node update.
+        """New non-fatal errors as ONE warning event per node update.
 
         Search errors for queries already reported as search_failed are left out (shown once).
         """
@@ -165,6 +164,4 @@ class EventConverter:
         self.n_errors = len(u["errors"])
         if node == "athena_search":
             new = [e for e in new if not (e.startswith("search[") and any(repr(q) in e for q in self.failed_queries))]
-        if not new:
-            return []
-        return [make_event("error", {"fatal": False, "node": node, "count": len(new), "messages": new})]
+        return [warning_event(new, NODE_VERB.get(node, node))] if new else []

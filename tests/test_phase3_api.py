@@ -77,13 +77,27 @@ def test_run_streams_ordered_events_and_serves_report(client):
     assert types.index("review") < types.index("section_written") < types.index("verification")
     assert types[-3:] == ["contradictions", "report_ready", "complete"]
     assert types.count("section_written") == len(PLAN)
-    assert all({"type", "data", "ts"} <= e.keys() for e in events)
+    assert types.count("search_started") == len(PLAN)  # one event per query
+    assert all({"type", "data", "ts"} <= e.keys() and isinstance(e["ts"], int) for e in events)
     assert events[-1]["data"]["status"] == "complete"
+
+    # contract field names
+    first = {t: next(e["data"] for e in events if e["type"] == t) for t in set(types)}
+    assert set(first["plan"]) == {"sub_questions", "awaiting_approval"} and first["plan"]["sub_questions"] == PLAN
+    assert [e["data"]["index"] for e in events if e["type"] == "search_started"] == [1, 2, 3]
+    assert {"round", "index", "total", "query"} <= set(first["search_started"]) and first["search_started"]["total"] == 3
+    assert {"query", "result_count"} <= set(first["search_done"])
+    assert {"round", "complete", "gaps"} <= set(first["review"])
+    assert "section" in first["section_written"]
+    assert {"verified", "partial", "not_found"} <= set(first["verification"])
+    assert set(first["contradictions"]) == {"count"} and first["report_ready"] == {}
+    assert types.count("plan") == 1  # an unchanged, auto-approved plan is not announced twice
 
     report = client.get(f"/api/runs/{run_id}/report").json()
     assert report["markdown"].startswith("# drones in farming")
     assert {s["id"] for s in report["sources"]} >= {r["id"] for r in report["references"]}
     assert report["contradictions_html_path"] is None
+    assert all({"claim", "status", "evidence"} <= set(c) for c in report["verification"])
     md = client.get(f"/api/runs/{run_id}/report.md")
     assert md.status_code == 200 and "## References" in md.text
     assert "attachment" in md.headers["content-disposition"]
@@ -111,7 +125,8 @@ def test_hitl_edit_plan_then_skip_gaps(client, monkeypatch):
     status = _wait(client, run_id, lambda s: s["status"] == "awaiting_input")
     assert status["pending"]["type"] == "approve_plan"
     edited = ["edited question one", "q two"]
-    assert client.post(f"/api/runs/{run_id}/resume", json={"action": "edit", "payload": {"plan": edited}}).json() == {"ok": True}
+    # contract: "approve with edits" carries payload {sub_questions}
+    assert client.post(f"/api/runs/{run_id}/resume", json={"action": "approve", "payload": {"sub_questions": edited}}).json() == {"ok": True}
 
     status = _wait(client, run_id, lambda s: s["status"] == "awaiting_input")
     assert status["pending"]["type"] == "approve_gaps"
@@ -119,11 +134,26 @@ def test_hitl_edit_plan_then_skip_gaps(client, monkeypatch):
     _wait(client, run_id, lambda s: s["status"] not in api.ACTIVE)
 
     events = _sse_events(client, run_id)  # full replay of the finished run
-    started = [e for e in events if e["type"] == "search_started"]
-    assert started[0]["data"]["queries"] == edited
-    assert any(e["type"] == "gaps_pending" for e in events)
-    assert any(e["type"] == "review" and e["data"].get("gaps_decision") == "skipped" for e in events)
-    assert events[-1]["data"]["stop_reason"] == "gaps_skipped_by_user"
+    started = [e["data"]["query"] for e in events if e["type"] == "search_started" and e["data"]["round"] == 1]
+    assert started == edited
+    plans = [e["data"] for e in events if e["type"] == "plan"]
+    assert [p["awaiting_approval"] for p in plans] == [False, True, False] and plans[-1]["sub_questions"] == edited
+    assert any(e["type"] == "gaps_pending" and e["data"]["gaps"] for e in events)
+    assert events[-1]["data"] == {**events[-1]["data"], "status": "complete", "stop_reason": "gaps_skipped_by_user"}
+
+
+def test_hitl_approve_gaps_with_edits(client, monkeypatch):
+    monkeypatch.setattr(nodes, "llm_chat", fake_llm(GAPS))
+    run_id = _start(client, hitl=True)
+    _wait(client, run_id, lambda s: s["status"] == "awaiting_input")
+    client.post(f"/api/runs/{run_id}/resume", json={"action": "approve"})
+    _wait(client, run_id, lambda s: s["status"] == "awaiting_input" and s["pending"]["type"] == "approve_gaps")
+    client.post(f"/api/runs/{run_id}/resume", json={"action": "approve", "payload": {"gaps": ["my own gap query"]}})
+    _wait(client, run_id, lambda s: s["status"] not in api.ACTIVE)
+
+    events = _sse_events(client, run_id)
+    round2 = [e["data"]["query"] for e in events if e["type"] == "search_started" and e["data"]["round"] == 2]
+    assert round2 == ["my own gap query"]
 
 
 def test_reject_plan_cancels_run(client):
@@ -132,6 +162,8 @@ def test_reject_plan_cancels_run(client):
     client.post(f"/api/runs/{run_id}/resume", json={"action": "reject"})
     status = _wait(client, run_id, lambda s: s["status"] not in api.ACTIVE)
     assert status["status"] == "rejected"
+    end = _sse_events(client, run_id)[-1]
+    assert end["type"] == "complete" and end["data"]["status"] == "failed" and end["data"]["stop_reason"] == "plan_rejected_by_user"
     assert client.get(f"/api/runs/{run_id}/report").status_code == 409
 
 
@@ -142,8 +174,8 @@ def test_graph_exception_becomes_error_event_not_500(client, monkeypatch):
     monkeypatch.setattr(nodes, "athena_search", broken)
     run_id = _start(client)
     events = _sse_events(client, run_id)
-    fatal = [e for e in events if e["type"] == "error" and e["data"]["fatal"]]
-    assert fatal and "search backend exploded" in fatal[0]["data"]["messages"][0]
+    fatal = [e for e in events if e["type"] == "error"]
+    assert len(fatal) == 1 and "search backend exploded" in fatal[0]["data"]["message"]
     assert "Traceback" not in json.dumps(events)
     assert events[-1] == {**events[-1], "type": "complete"} and events[-1]["data"]["status"] == "failed"
     assert client.get(f"/api/runs/{run_id}/report").status_code == 409
@@ -169,11 +201,15 @@ def test_sse_resumes_after_last_event_id(client):
 
 def test_demo_topics_and_cache_clear(client, monkeypatch, tmp_path):
     md = tmp_path / "topics.md"
-    md.write_text("# Demo\n\n## Topic A — two rounds\nSome notes.\n**Topic:** `First topic`\n\n## Topic B — failure\n**Topic:** Second topic\n", encoding="utf-8")
+    md.write_text(
+        "# Demo\n\n## Topic A: two rounds\nSome notes.\n**Topic:** `First topic`\nSettings: max rounds **2**.\n\n"
+        "## Topic B\n**Topic:** Second topic\n",
+        encoding="utf-8",
+    )
     monkeypatch.setattr(api, "DEMO_TOPICS_FILE", md)
     assert client.get("/api/demo-topics").json() == [
-        {"label": "Topic A", "topic": "First topic"},
-        {"label": "Topic B", "topic": "Second topic"},
+        {"id": "A", "title": "Two rounds", "topic": "First topic", "note": "max rounds 2."},
+        {"id": "B", "title": "Topic B", "topic": "Second topic", "note": None},
     ]
     run_id = _start(client)
     _wait(client, run_id, lambda s: s["status"] not in api.ACTIVE)
@@ -203,3 +239,23 @@ def test_demo_switch_fails_only_topic_b_subquestion(client, monkeypatch, tmp_pat
 
     events_a = run("topic alpha")  # any other topic is never affected
     assert not any(e["type"] == "search_failed" for e in events_a)
+
+
+def test_problems_the_run_survives_are_non_terminal_warnings(client, monkeypatch):
+    def flaky_page(url, raw, errors):
+        errors.append(f"extract failed for {url}: HTTPError: 403")
+        return "", ""
+
+    monkeypatch.setattr(nodes, "page_content", flaky_page)
+    events = _sse_events(client, _start(client))
+    warnings = [e["data"] for e in events if e["type"] == "warning"]
+    assert warnings and warnings[0]["message"].endswith("while searching") and warnings[0]["details"]
+    assert not any(e["type"] == "error" for e in events)  # nothing terminal...
+    assert events[-1]["type"] == "complete"  # ...and the run ran to the end
+
+
+def test_contradictions_route(client):
+    run_id = _start(client)
+    _wait(client, run_id, lambda s: s["status"] not in api.ACTIVE)
+    resp = client.get(f"/api/runs/{run_id}/contradictions")
+    assert resp.status_code == 200 and resp.headers["content-type"].startswith("text/html")

@@ -9,14 +9,15 @@ to the browser as Server-Sent Events. Endpoints:
   POST /api/runs/{id}/resume         answer a pending interrupt {action, payload?}
   GET  /api/runs/{id}/report         report markdown, sources, verification, conflicts
   GET  /api/runs/{id}/report.md      download the exported Markdown report
-  GET  /api/runs/{id}/contradictions.html   the pyvis contradiction map
-  GET  /api/demo-topics              the two demo topics from demo/topics.md
+  GET  /api/runs/{id}/contradictions        the pyvis contradiction map (text/html)
+  GET  /api/demo-topics              demo topics from demo/topics.md: [{id, title, topic, note}]
   POST /api/cache/clear              forget finished runs and cached embeddings
 
 Each run lives in an in-memory registry guarded by one lock: its event list,
 status, pending interrupt, and a queue the graph thread waits on for the
 human's answer. A run-level failure becomes an "error" event plus a "complete"
-event with status "failed"; it never becomes an HTTP 500.
+event with status "failed"; it never becomes an HTTP 500. Problems the run
+survives (e.g. an unreadable page) are non-terminal "warning" events.
 
 Demo switch (off by default): live web search practically never comes back
 empty, so to SHOW the failed-search path, set APOLLO_DEMO_FAIL_SUBQUESTION=N.
@@ -47,7 +48,7 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 import config
-from events import EventConverter, make_event
+from events import EventConverter, make_event, warning_event
 from export import write_report
 from graph import nodes
 from graph.state import initial_state
@@ -107,7 +108,7 @@ def _emit(run: Run, events: list[dict]) -> None:
 def _finish(run: Run, status: str, data: dict) -> None:
     """Append the final event and set the status together, so SSE readers see both or neither."""
     with _lock:
-        run.events.append(make_event("complete", {"status": status, **data}))
+        run.events.append(make_event("complete", {"status": "complete" if status == "complete" else "failed", **data}))
         run.status = status
         run.pending = None
 
@@ -142,8 +143,7 @@ def _execute(run: Run) -> None:
                 answer = run.answers.get(timeout=HITL_WAIT_SECONDS)
             except queue.Empty:
                 answer = {"approved": True}
-                _emit(run, [make_event("error", {"fatal": False, "node": "human", "count": 1,
-                                                 "messages": ["No answer within 15 minutes; auto-approved."]})])
+                _emit(run, [warning_event(["No answer within 15 minutes; auto-approved."], "waiting for you")])
             if answer is _REJECT:
                 _finish(run, "rejected", {"stop_reason": "plan_rejected_by_user"})
                 return
@@ -154,17 +154,14 @@ def _execute(run: Run) -> None:
         final = snapshot.values
         write_report(final, run.out_dir)
         html = run.out_dir / "contradictions.html"
-        message = write_contradiction_map(final["contradictions"], final["findings"], html)
-        n = len(final["contradictions"])
-        _emit(run, [make_event("contradictions", {"count": n, "message": message,
-                                                  "url": f"/api/runs/{run.id}/contradictions.html" if n else None})])
+        write_contradiction_map(final["contradictions"], final["findings"], html)
+        _emit(run, [make_event("contradictions", {"count": len(final["contradictions"])})])
         with _lock:
             run.state = final
-        _emit(run, [make_event("report_ready", {"url": f"/api/runs/{run.id}/report"})])
+        _emit(run, [make_event("report_ready", {})])
         _finish(run, final["status"], {"stop_reason": final["stop_reason"], "rounds": final["round_no"]})
     except Exception as exc:  # a run-level failure is reported as events, never as a crash
-        _emit(run, [make_event("error", {"fatal": True, "node": "run", "count": 1,
-                                         "messages": [f"Run failed: {type(exc).__name__}: {str(exc)[:300]}"]})])
+        _emit(run, [make_event("error", {"message": f"Run failed: {type(exc).__name__}: {str(exc)[:300]}"})])
         _finish(run, "failed", {"stop_reason": "error"})
 
 
@@ -210,7 +207,7 @@ class ResumeRequest(BaseModel):
 def start_run(req: RunRequest) -> dict:
     passages.clear_cache()  # bounded memory; each run re-embeds its own sources
     run = Run(req.topic.strip(), req.max_rounds, req.hitl)
-    if DEMO_FAIL_SUBQUESTION and any(t["label"] == "Topic B" and t["topic"] == run.topic for t in demo_topics()):
+    if DEMO_FAIL_SUBQUESTION and any(t["id"] == "B" and t["topic"] == run.topic for t in demo_topics()):
         run.fail_subquestion = DEMO_FAIL_SUBQUESTION
     with _lock:
         _runs[run.id] = run
@@ -258,22 +255,28 @@ async def run_events(run_id: str, request: Request) -> StreamingResponse:
 
 @app.post("/api/runs/{run_id}/resume")
 def resume_run(run_id: str, req: ResumeRequest) -> dict:
+    """Answer a pending interrupt.
+
+    Plan:  approve (payload {sub_questions} = approve with edits) | edit (same payload) | reject
+    Gaps:  approve (payload {gaps} = approve edited gaps) | edit (same payload) | skip | reject (= skip)
+    """
     run = _get(run_id)
     with _lock:
         pending = run.pending
         if pending is None:
             raise HTTPException(409, "this run is not waiting for a decision")
-        kind = pending["type"]
+        is_plan = pending["type"] == "approve_plan"
         body = req.payload or {}
-        if req.action == "approve":
-            answer: object = {"approved": True}
-        elif req.action == "edit":
-            key = "plan" if kind == "approve_plan" else "gaps"
-            items = [s.strip() for s in body.get(key, []) if isinstance(s, str) and s.strip()]
-            if not items:
-                raise HTTPException(422, f"edit needs payload.{key}: a non-empty list of strings")
-            answer = {key: items}
-        elif kind == "approve_plan":
+        key = "sub_questions" if is_plan else "gaps"
+        raw = body.get(key, body.get("plan") if is_plan else None)  # "plan" kept for older clients
+        edited = [x.strip() for x in raw if isinstance(x, str) and x.strip()] if isinstance(raw, list) else []
+        if req.action in ("approve", "edit") and raw is not None and not edited:
+            raise HTTPException(422, f"payload.{key} must be a non-empty list of strings")
+        if req.action == "edit" and not edited:
+            raise HTTPException(422, f"edit needs payload.{key}: a non-empty list of strings")
+        if req.action in ("approve", "edit"):
+            answer: object = ({"plan": edited} if is_plan else {"gaps": edited}) if edited else {"approved": True}
+        elif is_plan:
             if req.action == "skip":
                 raise HTTPException(422, "a plan can be approved, edited, or rejected, not skipped")
             answer = _REJECT
@@ -317,9 +320,12 @@ def get_report(run_id: str) -> dict:
         "markdown": state["report"],
         "references": state["references"],
         "sources": _source_rows(state),
-        "verification": state["claims"],
+        "verification": [
+            {"claim": c["claim"], "status": c["status"], "evidence": c["best_match"] or c["evidence"], "source_ids": c["source_ids"]}
+            for c in state["claims"]
+        ],
         "contradictions": state["contradictions"],
-        "contradictions_html_path": f"/api/runs/{run_id}/contradictions.html" if state["contradictions"] else None,
+        "contradictions_html_path": f"/api/runs/{run_id}/contradictions" if state["contradictions"] else None,
     }
 
 
@@ -331,7 +337,7 @@ def download_report(run_id: str) -> FileResponse:
     return FileResponse(path, media_type="text/markdown", filename=f"apollo-report-{run_id[:8]}.md")
 
 
-@app.get("/api/runs/{run_id}/contradictions.html")
+@app.get("/api/runs/{run_id}/contradictions")
 def contradictions_html(run_id: str) -> HTMLResponse:
     path = _get(run_id).out_dir / "contradictions.html"
     if not path.exists():
@@ -341,11 +347,23 @@ def contradictions_html(run_id: str) -> HTMLResponse:
 
 @app.get("/api/demo-topics")
 def demo_topics() -> list[dict]:
-    """Topics are the `**Topic:**` lines of demo/topics.md, under `## Topic A` / `## Topic B` headings."""
+    """Parse demo/topics.md. Each `## Topic <id>: <title>` section gives one topic: its
+    `**Topic:**` line is the topic, its `Settings:` line (if any) is the note."""
     text = DEMO_TOPICS_FILE.read_text(encoding="utf-8")
     out = []
-    for m in re.finditer(r"^## (Topic \w+)[^\n]*\n(?:.*\n)*?\*\*Topic:\*\*\s*(.+)$", text, re.M):
-        out.append({"label": m.group(1), "topic": m.group(2).strip().strip("`")})
+    for m in re.finditer(r"^## Topic (\w+)(?::\s*(.*))?\n((?:(?!^## ).*\n?)*)", text, re.M):
+        body = m.group(3)
+        topic = re.search(r"^\*\*Topic:\*\*\s*(.+)$", body, re.M)
+        if not topic:
+            continue
+        note = re.search(r"^Settings:\s*(.+)$", body, re.M)
+        title = (m.group(2) or f"Topic {m.group(1)}").strip()
+        out.append({
+            "id": m.group(1),
+            "title": title[:1].upper() + title[1:],
+            "topic": topic.group(1).strip().strip("`"),
+            "note": re.sub(r"[*`]", "", note.group(1)).strip() if note else None,
+        })
     return out
 
 

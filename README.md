@@ -61,7 +61,9 @@ START → Apollo plans → (you approve/edit) → Athena searches → Hermes rev
 - **Failures never crash a run.** A failed search, an unreadable page or a rate limit becomes an amber warning in
   the UI, and the run continues.
 - The web API (`api.py`) runs the graph in a background thread and streams typed events (`events.py`) over
-  Server-Sent Events. The frontend never reads raw graph state.
+  Server-Sent Events. The frontend never reads raw graph state: `frontend/src/derive.ts` turns the event list
+  into everything the UI shows. Event contract: see the docstring of `events.py` (`warning` is a non-terminal
+  extension; `error` and `complete` end the stream).
 
 | Path | What it is |
 |---|---|
@@ -69,7 +71,7 @@ START → Apollo plans → (you approve/edit) → Athena searches → Hermes rev
 | `tools/` | search, page extraction, passage selection, retry policy, text helpers |
 | `verify/`, `viz/`, `export.py` | claim verification, contradiction map, Markdown export |
 | `api.py`, `events.py` | FastAPI backend and event conversion |
-| `frontend/` | React + Vite + TypeScript + Tailwind UI (7 components) |
+| `frontend/` | "Mission Control" UI: React 18 + Vite + TypeScript (strict) + Tailwind 4; 6 component files |
 | `demo/topics.md`, `DEMO.md` | demo topics and the 2-minute demo script |
 | `PHASE_LOG.md` | what was built and verified in each phase, with known gaps |
 

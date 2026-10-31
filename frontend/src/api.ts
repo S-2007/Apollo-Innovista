@@ -1,122 +1,149 @@
-// Typed wrappers for the FastAPI backend, and useRunEvents: the SSE hook.
-// Event types mirror events.py exactly; the UI never sees raw graph state.
-
-import { useEffect, useState } from 'react'
+// Typed fetch wrappers for the Apollo backend contract, and the types for
+// events, sources, claims and the report. Fields the UI reads are optional where
+// the backend might omit them; derive.ts and the components supply fallbacks.
 
 // ------------------------------------------------------------------ events
 
-export type RunEvent =
-  | Ev<'plan', { plan: string[]; pending: boolean; approved?: boolean }>
-  | Ev<'search_started', { round: number; queries: string[] }>
-  | Ev<'search_done', { round: number; query: string; new_sources: number; sources: { id: string; title: string; url: string }[] }>
-  | Ev<'search_failed', { round: number; query: string; reason: string }>
-  | Ev<'review', { round: number; complete?: boolean; gaps?: string[] | null; contradictions?: number; gaps_decision?: string; stop_reason?: string; status?: string }>
-  | Ev<'gaps_pending', { round: number; gaps: string[] }>
-  | Ev<'section_written', { index: number; question: string; citations: number; not_found: boolean }>
-  | Ev<'verification', { total: number; counts: Record<ClaimStatus, number> }>
-  | Ev<'contradictions', { count: number; message: string; url: string | null }>
-  | Ev<'report_ready', { url: string }>
-  | Ev<'error', { fatal: boolean; node: string; count: number; messages: string[] }>
-  | Ev<'complete', { status: string; stop_reason: string; rounds?: number }>
+export type EventType =
+  | 'plan'
+  | 'search_started'
+  | 'search_done'
+  | 'search_failed'
+  | 'review'
+  | 'gaps_pending'
+  | 'section_written'
+  | 'verification'
+  | 'contradictions'
+  | 'report_ready'
+  | 'warning' // non-terminal problem the run survived (backend extension, see README)
+  | 'error'
+  | 'complete'
 
-type Ev<T extends string, D> = { type: T; data: D; ts: string }
+export interface EventDataMap {
+  plan: { sub_questions?: string[]; awaiting_approval?: boolean }
+  search_started: { round?: number; index?: number; total?: number; query?: string }
+  search_done: { round?: number; query?: string; result_count?: number }
+  search_failed: { round?: number; query?: string; reason?: string }
+  review: { round?: number; complete?: boolean; gaps?: string[] }
+  gaps_pending: { round?: number; gaps?: string[] }
+  section_written: { section?: string; index?: number; citations?: number; not_found?: boolean }
+  verification: { verified?: number; partial?: number; not_found?: number; unchecked?: number }
+  contradictions: { count?: number }
+  report_ready: Record<string, never>
+  warning: { message?: string; details?: string[] }
+  error: { message?: string }
+  complete: { status?: 'complete' | 'failed'; stop_reason?: string }
+}
+
+/** A known event; `data` is narrowed by `type`. */
+export type RunEvent = { [K in EventType]: { type: K; data: EventDataMap[K]; ts: number } }[EventType]
+
+/** Anything else the stream might send; shown with a neutral fallback, never a crash. */
+export type UnknownEvent = { type: string; data: Record<string, unknown>; ts: number }
+
+export type AnyEvent = RunEvent | UnknownEvent
+
+const KNOWN = new Set<string>([
+  'plan', 'search_started', 'search_done', 'search_failed', 'review', 'gaps_pending', 'section_written',
+  'verification', 'contradictions', 'report_ready', 'warning', 'error', 'complete',
+])
+
+export const isKnown = (e: AnyEvent): e is RunEvent => KNOWN.has(e.type)
+
+/** Parse one SSE message defensively: bad JSON or odd shapes become an UnknownEvent. */
+export function parseEvent(raw: string): AnyEvent {
+  try {
+    const v: unknown = JSON.parse(raw)
+    if (v && typeof v === 'object') {
+      const o = v as { type?: unknown; data?: unknown; ts?: unknown }
+      return {
+        type: typeof o.type === 'string' ? o.type : 'unknown',
+        data: o.data && typeof o.data === 'object' ? (o.data as Record<string, unknown>) : {},
+        ts: typeof o.ts === 'number' ? o.ts : Date.now(),
+      } as AnyEvent
+    }
+  } catch {
+    /* fall through */
+  }
+  return { type: 'unknown', data: {}, ts: Date.now() }
+}
+
+/** ts may be epoch seconds or milliseconds. */
+export const toMs = (ts: number) => (ts < 1e12 ? ts * 1000 : ts)
+
+// ------------------------------------------------------------------ REST types
 
 export type ClaimStatus = 'verified' | 'partial' | 'not_found' | 'unchecked'
 
-/** The human decision the run is currently waiting for, derived from the event stream. */
-export type Pending = { kind: 'plan'; items: string[]; at: number } | { kind: 'gaps'; items: string[]; at: number } | null
-
-export function pendingDecision(events: RunEvent[]): Pending {
-  let pending: Pending = null
-  events.forEach((e, i) => {
-    if (e.type === 'plan') pending = e.data.pending ? { kind: 'plan', items: e.data.plan, at: i } : null
-    else if (e.type === 'gaps_pending') pending = { kind: 'gaps', items: e.data.gaps, at: i }
-    else if ((e.type === 'review' && e.data.gaps_decision) || e.type === 'complete') pending = null
-  })
-  return pending
-}
-
-/** Subscribe to a run's SSE stream. EventSource reconnects by itself (sending Last-Event-ID).
- *  Events are stored with the run id they belong to, so a new run never sees the previous run's events. */
-export function useRunEvents(runId: string | null): RunEvent[] {
-  const [stream, setStream] = useState<{ runId: string | null; events: RunEvent[] }>({ runId: null, events: [] })
-  useEffect(() => {
-    if (!runId) return
-    const source = new EventSource(`/api/runs/${runId}/events`)
-    source.onmessage = (msg) => {
-      const event = JSON.parse(msg.data) as RunEvent
-      setStream((prev) => ({ runId, events: prev.runId === runId ? [...prev.events, event] : [event] }))
-      if (event.type === 'complete') source.close() // otherwise the browser would reconnect
-    }
-    return () => source.close()
-  }, [runId])
-  return stream.runId === runId ? stream.events : []
-}
-
-// ------------------------------------------------------------------ REST
-
-export type DemoTopic = { label: string; topic: string }
-
-export type Source = {
+export interface Source {
   id: string
-  title: string
+  title?: string
   url: string
-  snippet: string
-  section: number
-  question: string
-  extracted_by: string
-  cited: boolean
-  claims: Partial<Record<ClaimStatus, number>>
+  snippet?: string
+  section?: number
+  status?: string
 }
 
-export type Claim = {
+export interface Claim {
   claim: string
-  source_ids: string[]
   status: ClaimStatus
-  best_match: string
-  similarity: number
-  evidence: string
+  evidence?: string
 }
 
-export type Report = {
-  topic: string
-  status: string
-  stop_reason: string
+export interface Report {
   markdown: string
-  references: { id: string; title: string; url: string }[]
   sources: Source[]
   verification: Claim[]
-  contradictions: { source_a: string; source_b: string; claim: string }[]
   contradictions_html_path: string | null
+}
+
+export interface DemoTopic {
+  id: string
+  title: string
+  topic: string
+  note?: string | null
 }
 
 export type ResumeAction = 'approve' | 'edit' | 'reject' | 'skip'
 
+// ------------------------------------------------------------------ fetch wrappers
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(url, init)
+  let resp: Response
+  try {
+    resp = await fetch(url, init)
+  } catch {
+    throw new Error('Cannot reach the backend. Is uvicorn running on port 8000?')
+  }
   if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}))
-    throw new Error(typeof body.detail === 'string' ? body.detail : `Request failed (${resp.status})`)
+    const body: unknown = await resp.json().catch(() => null)
+    const detail = (body as { detail?: unknown } | null)?.detail
+    const msg =
+      typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail) // FastAPI validation errors: [{loc, msg}]
+          ? detail.map((d: { msg?: string; loc?: unknown[] }) => `${(d.loc ?? []).slice(1).join('.')} ${d.msg ?? ''}`.trim()).join('; ')
+          : `Request failed (${resp.status})`
+    throw new Error(msg)
   }
   return resp.json() as Promise<T>
 }
 
-const json = (body: unknown): RequestInit => ({
+const post = (body: unknown): RequestInit => ({
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(body),
 })
 
 export const startRun = (topic: string, maxRounds: number, hitl: boolean) =>
-  request<{ run_id: string }>('/api/runs', json({ topic, max_rounds: maxRounds, hitl }))
+  request<{ run_id: string }>('/api/runs', post({ topic, max_rounds: maxRounds, hitl }))
 
-export const resumeRun = (runId: string, action: ResumeAction, payload?: { plan?: string[]; gaps?: string[] }) =>
-  request<{ ok: boolean }>(`/api/runs/${runId}/resume`, json({ action, payload }))
+export const resumeRun = (runId: string, action: ResumeAction, payload?: { sub_questions?: string[]; gaps?: string[] }) =>
+  request<{ ok: boolean }>(`/api/runs/${runId}/resume`, post(payload ? { action, payload } : { action }))
 
 export const getReport = (runId: string) => request<Report>(`/api/runs/${runId}/report`)
 
 export const getDemoTopics = () => request<DemoTopic[]>('/api/demo-topics')
 
-export const clearCache = () => request<{ runs_forgotten: number; output_dirs_removed: number }>('/api/cache/clear', { method: 'POST' })
-
+export const eventsUrl = (runId: string) => `/api/runs/${runId}/events`
 export const reportDownloadUrl = (runId: string) => `/api/runs/${runId}/report.md`
