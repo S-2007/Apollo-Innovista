@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { ResumeAction } from '../api'
+import { Confirm } from '../ui'
 
 type Props =
   | { mode: 'plan'; items: string[]; onAnswer: (action: ResumeAction, payload?: { sub_questions?: string[] }) => void }
@@ -31,7 +32,9 @@ export default function HitlPanel(props: Props) {
     else props.onAnswer('approve', changed() ? { gaps: list } : undefined)
   }
   const shown = changed() ? edited() : items
-  const dismiss = () => props.onAnswer(mode === 'plan' ? 'reject' : 'skip')
+  // Rejecting the plan cancels the run, so it asks first; skipping gap queries does not.
+  const [confirming, setConfirming] = useState(false)
+  const dismiss = () => (mode === 'plan' ? setConfirming(true) : props.onAnswer('skip'))
 
   // Keyboard: Enter = approve, E = toggle edit. Ignored while typing in a field.
   const approveRef = useRef(approve)
@@ -51,17 +54,17 @@ export default function HitlPanel(props: Props) {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const secondary = 'rounded-md border border-white/15 px-3 py-1.5 font-mono text-xs text-zinc-200 hover:border-white/30'
+  const secondary = 'rounded-sm border border-line px-3 py-1.5 font-mono text-xs text-ink hover:border-line'
 
   return (
     <section
       aria-label={mode === 'plan' ? 'Approve the plan' : 'Approve the gap queries'}
-      className="sticky bottom-3 z-10 rounded-lg border border-accent/50 bg-[#0d1218]/95 p-4 shadow-[0_8px_32px_-8px_rgb(0_0_0/0.8)] backdrop-blur"
+      className="sticky bottom-3 z-10 rounded-sm border border-accent/50 bg-surface p-4 shadow-[0_6px_20px_-10px_rgb(17_19_24/0.35)]"
     >
-      <h2 className="font-display text-sm font-semibold tracking-wide text-accent">
+      <h2 className="font-display text-sm font-semibold tracking-wide text-accent-ink">
         {mode === 'plan' ? 'APPROVE PLAN' : 'APPROVE GAP QUERIES'}
       </h2>
-      <p className="mt-0.5 text-xs text-zinc-400">
+      <p className="mt-0.5 text-xs text-muted">
         {mode === 'plan' ? 'Athena searches these sub-questions next.' : 'Hermes found gaps. These queries run in the next round.'}
       </p>
 
@@ -71,22 +74,22 @@ export default function HitlPanel(props: Props) {
           value={text}
           rows={Math.max(3, items.length + 1)}
           onChange={(e) => setText(e.target.value)}
-          className="mt-3 w-full resize-y rounded-md border border-white/15 bg-black/40 px-2.5 py-2 font-mono text-xs text-zinc-100 focus:border-accent/70 focus:outline-none"
+          className="mt-3 w-full resize-y rounded-sm border border-line bg-surface-2 px-2.5 py-2 font-mono text-xs text-ink focus:border-accent/70 focus:outline-none"
         />
       ) : (
         <ol className="mt-3 space-y-1.5 text-sm">
           {(mode === 'plan' && editing ? drafts : shown).map((item, i) => (
             <li key={i} className="flex gap-2">
-              <span className="mt-0.5 w-5 shrink-0 text-right font-mono text-xs text-zinc-400">{i + 1}</span>
+              <span className="mt-0.5 w-5 shrink-0 text-right font-mono text-xs text-muted">{i + 1}</span>
               {mode === 'plan' && editing ? (
                 <input
                   aria-label={`Sub-question ${i + 1}`}
                   value={item}
                   onChange={(e) => setDrafts(drafts.map((d, j) => (j === i ? e.target.value : d)))}
-                  className="min-w-0 flex-1 rounded-md border border-white/15 bg-black/40 px-2 py-1 text-sm text-zinc-100 focus:border-accent/70 focus:outline-none"
+                  className="min-w-0 flex-1 rounded-sm border border-line bg-surface-2 px-2 py-1 text-sm text-ink focus:border-accent/70 focus:outline-none"
                 />
               ) : (
-                <span className="min-w-0 break-words text-zinc-200">{item}</span>
+                <span className="min-w-0 break-words text-ink">{item}</span>
               )}
             </li>
           ))}
@@ -96,7 +99,7 @@ export default function HitlPanel(props: Props) {
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button
           onClick={approve}
-          className="rounded-md bg-accent px-3 py-1.5 font-display text-xs font-semibold tracking-[0.1em] text-void hover:bg-cyan-300"
+          className="rounded-sm bg-accent-ink px-3 py-1.5 font-display text-xs font-semibold tracking-[0.1em] text-white hover:bg-ink"
         >
           {mode === 'plan' ? 'APPROVE PLAN' : 'APPROVE ALL'}
         </button>
@@ -106,10 +109,21 @@ export default function HitlPanel(props: Props) {
         <button onClick={dismiss} className={secondary}>
           {mode === 'plan' ? 'Reject' : 'Skip'}
         </button>
-        <span className="ml-auto font-mono text-[11px] text-zinc-400">
+        <span className="ml-auto font-mono text-[11px] text-muted">
           <kbd>Enter</kbd> approve · <kbd>E</kbd> edit
         </span>
       </div>
+      <Confirm
+        open={confirming}
+        title="Reject the plan and stop this run?"
+        body="The run ends without searching or writing a report. This cannot be undone; start a new run to try again."
+        confirmLabel="Reject and stop"
+        onCancel={() => setConfirming(false)}
+        onConfirm={() => {
+          setConfirming(false)
+          props.onAnswer('reject')
+        }}
+      />
     </section>
   )
 }

@@ -93,6 +93,7 @@ export interface Claim {
   status: ClaimStatus
   evidence?: string
   source_ids?: string[]
+  similarity?: number // cosine similarity of the claim to its best-matching source sentence (0-1)
 }
 
 export interface Contradiction {
@@ -114,6 +115,7 @@ export interface Report {
   status?: string
   stop_reason?: string
   markdown: string
+  references?: { id: string; title: string; url: string }[] // sources actually cited
   sources: Source[]
   verification: Claim[]
   contradictions?: Contradiction[]

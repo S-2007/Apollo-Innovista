@@ -4,10 +4,11 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import {
-  getMetrics, getReport, listRuns, resumeRun, startRun,
-  type AnyEvent, type Metrics, type Report, type ResumeAction, type RunSummary,
+  getMetrics, getReport, getSystem, listRuns, resumeRun, startRun,
+  type AnyEvent, type Metrics, type Report, type ResumeAction, type RunSummary, type SystemInfo,
 } from './api'
 import { derive, type Derived } from './derive'
+import { runFromUrl } from './router'
 import { useRunEvents } from './useRunEvents'
 
 const LIST_POLL_MS = 4000
@@ -30,6 +31,9 @@ export interface Store {
   answer: (action: ResumeAction, payload?: { sub_questions?: string[]; gaps?: string[] }) => Promise<void>
   showHitl: boolean
   refreshRuns: () => void
+  system: SystemInfo | null
+  refreshSystem: () => void
+  backendOk: boolean | null // null until the first run-list request answers
 }
 
 const Ctx = createContext<Store | null>(null)
@@ -42,13 +46,16 @@ export function useStore(): Store {
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [runs, setRuns] = useState<RunSummary[]>([])
-  const [runId, setRunId] = useState<string | null>(null)
+  const [runId, setRunId] = useState<string | null>(runFromUrl) // a shared link opens its run
   const [report, setReport] = useState<Report | null>(null)
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [answeredAt, setAnsweredAt] = useState(-1) // event index of the last decision we sent
   const [problem, setProblem] = useState<string | null>(null)
   const [listError, setListError] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
+  const [system, setSystem] = useState<SystemInfo | null>(null)
+  const [sysTick, setSysTick] = useState(0)
+  const [backendOk, setBackendOk] = useState<boolean | null>(null)
 
   const stream = useRunEvents(runId)
   const selected = runs.find((r) => r.run_id === runId) ?? null
@@ -66,9 +73,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (!live) return
           setRuns(list)
           setListError(null) // a poll that works again clears the earlier failure
+          setBackendOk(true)
           setRunId((cur) => cur ?? list[0]?.run_id ?? null) // default: the newest run
         })
-        .catch((e: unknown) => live && setListError(e instanceof Error ? `Run list: ${e.message}` : 'Could not load runs.'))
+        .catch((e: unknown) => {
+          if (!live) return
+          setBackendOk(false)
+          setListError(e instanceof Error ? `Run list: ${e.message}` : 'Could not load runs.')
+        })
     load()
     const t = window.setInterval(load, LIST_POLL_MS)
     return () => {
@@ -76,6 +88,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       window.clearInterval(t)
     }
   }, [tick])
+
+  // System info (provider, key presence, limits, security checks): once, and on request.
+  useEffect(() => {
+    let live = true
+    getSystem().then((s) => live && setSystem(s)).catch(() => live && setSystem(null))
+    return () => {
+      live = false
+    }
+  }, [sysTick])
+  const refreshSystem = useCallback(() => setSysTick((t) => t + 1), [])
 
   // Report: once the selected run says it is ready.
   useEffect(() => {
@@ -108,6 +130,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setAnsweredAt(-1)
     setRunId(id)
   }, [])
+
+  // A ?run= link pasted into an open tab selects that run too.
+  useEffect(() => {
+    const on = () => {
+      const id = runFromUrl()
+      if (id) select(id)
+    }
+    window.addEventListener('hashchange', on)
+    return () => window.removeEventListener('hashchange', on)
+  }, [select])
 
   const start = async (topic: string, rounds: number, hitl: boolean) => {
     setProblem(null)
@@ -142,6 +174,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       value={{
         runs, runId, selected, select, events: stream.events, d, maxRounds, busy, report, metrics,
         problem: problem ?? listError ?? connProblem, setProblem, start, answer, showHitl, refreshRuns,
+        system, refreshSystem, backendOk,
       }}
     >
       {children}

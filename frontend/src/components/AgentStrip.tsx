@@ -11,10 +11,10 @@ const AGENTS = [
 ] as const
 
 const DOT: Record<AgentStatus, string> = {
-  idle: 'bg-zinc-600',
-  active: 'bg-accent',
-  done: 'bg-emerald-400',
-  error: 'bg-amber-400',
+  idle: 'bg-muted/40',
+  active: 'bg-accent-strong',
+  done: 'bg-ok',
+  error: 'bg-err',
 }
 
 const mmss = (ms: number) => {
@@ -40,31 +40,31 @@ export default function AgentStrip({ d, maxRounds }: { d: Derived; maxRounds: nu
         return (
           <div
             key={a.key}
-            className={`rounded-lg border bg-white/[0.03] px-4 py-3 ${status === 'active' ? 'pulse-border border-accent/60' : 'border-white/10'}`}
+            className={`rounded-sm border bg-surface px-4 py-3 ${status === 'active' ? 'pulse-border border-accent/60' : 'border-hair'}`}
           >
             <div className="flex items-center gap-2">
               <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[status]}`} aria-hidden="true" />
               <span className="font-display text-sm font-semibold tracking-[0.14em]">{a.name}</span>
-              <span className="ml-auto font-mono text-[11px] uppercase text-zinc-400">{status}</span>
+              <span className="ml-auto font-mono text-[11px] uppercase text-muted">{status}</span>
             </div>
-            <p className="mt-1 text-xs text-zinc-400">{a.role}</p>
-            <p className={`mt-2 truncate font-mono text-xs ${status === 'active' ? 'text-accent' : 'text-zinc-300'}`} aria-live="polite">
+            <p className="mt-1 text-xs text-muted">{a.role}</p>
+            <p className={`mt-2 truncate font-mono text-xs ${status === 'active' ? 'text-accent-ink' : 'text-muted'}`} aria-live="polite">
               {d.labels[a.key]}
             </p>
           </div>
         )
       })}
-      <div className="flex gap-6 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 sm:col-span-3 lg:col-span-1 lg:flex-col lg:gap-2">
+      <div className="flex gap-6 rounded-sm border border-hair bg-surface px-4 py-3 sm:col-span-3 lg:col-span-1 lg:flex-col lg:gap-2">
         <div>
-          <p className="font-mono text-[11px] uppercase text-zinc-400">Round</p>
-          <p className="font-mono text-lg tabular-nums text-zinc-100">
+          <p className="font-mono text-[11px] uppercase text-muted">Round</p>
+          <p className="font-mono text-lg tabular-nums text-ink">
             {d.round || '-'}
-            <span className="text-zinc-400">/{maxRounds}</span>
+            <span className="text-muted">/{maxRounds}</span>
           </p>
         </div>
         <div>
-          <p className="font-mono text-[11px] uppercase text-zinc-400">Elapsed</p>
-          <p className="font-mono text-lg tabular-nums text-zinc-100">{elapsed === null ? '--:--' : mmss(elapsed)}</p>
+          <p className="font-mono text-[11px] uppercase text-muted">Elapsed</p>
+          <p className="font-mono text-lg tabular-nums text-ink">{elapsed === null ? '--:--' : mmss(elapsed)}</p>
         </div>
       </div>
     </section>

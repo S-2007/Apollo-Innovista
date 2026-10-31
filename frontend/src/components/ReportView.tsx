@@ -6,25 +6,25 @@ import ReactMarkdown from 'react-markdown'
 import { reportDownloadUrl, type Claim, type Report, type Source } from '../api'
 
 function Chip({ id, source }: { id: string; source?: Source }) {
-  if (!source?.url) return <span className="font-mono text-xs text-zinc-400">[{id}]</span>
+  if (!source?.url) return <span className="font-mono text-xs text-muted">[{id}]</span>
   return (
     <span className="group relative inline-block align-baseline">
       <a
         href={source.url}
         target="_blank"
         rel="noreferrer"
-        className="mx-0.5 rounded border border-accent/40 bg-accent/10 px-1 font-mono text-[11px] text-accent no-underline hover:bg-accent hover:text-void"
+        className="mx-0.5 rounded border border-accent/40 bg-accent/10 px-1 font-mono text-[11px] text-accent-ink no-underline hover:bg-ink hover:text-white"
       >
         {id}
       </a>
       {/* opens leftwards from the chip's right edge so it stays inside the page */}
       <span
         role="tooltip"
-        className="pointer-events-none absolute bottom-full right-0 z-20 mb-2 hidden w-72 max-w-[80vw] rounded-md border border-white/15 bg-[#11151c] p-3 text-left font-sans text-xs leading-relaxed text-zinc-300 shadow-2xl group-focus-within:block group-hover:block"
+        className="pointer-events-none absolute bottom-full right-0 z-20 mb-2 hidden w-72 max-w-[80vw] rounded-sm border border-line bg-[#11151c] p-3 text-left font-sans text-xs leading-relaxed text-muted shadow-2xl group-focus-within:block group-hover:block"
       >
-        <span className="block font-semibold text-zinc-100 [overflow-wrap:anywhere]">{source.title || id}</span>
+        <span className="block font-semibold text-ink [overflow-wrap:anywhere]">{source.title || id}</span>
         {source.snippet && <span className="mt-1 block">{source.snippet}</span>}
-        <span className="mt-1.5 block font-mono text-[11px] text-accent [overflow-wrap:anywhere]">{source.url}</span>
+        <span className="mt-1.5 block font-mono text-[11px] text-accent-ink [overflow-wrap:anywhere]">{source.url}</span>
       </span>
     </span>
   )
@@ -54,8 +54,8 @@ function textOf(node: ReactNode): string {
 const norm = (s: string) => s.replace(/\[S\d+\]/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
 
 const BORDER: Record<string, string> = {
-  partial: 'border-l-2 border-amber-400/80 pl-3',
-  not_found: 'border-l-2 border-red-400/80 pl-3',
+  partial: 'border-l-2 border-warn pl-3',
+  not_found: 'border-l-2 border-err pl-3',
 }
 
 export default function ReportView({ report, runId }: { report: Report; runId: string }) {
@@ -73,19 +73,19 @@ export default function ReportView({ report, runId }: { report: Report; runId: s
 
   return (
     <article>
-      <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-zinc-400">
+      <div className="no-print mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
         <a
           href={reportDownloadUrl(runId)}
           download
-          className="rounded-md bg-accent px-3 py-1.5 font-display text-xs font-semibold tracking-[0.1em] text-void hover:bg-cyan-300"
+          className="rounded-sm bg-accent-ink px-3 py-1.5 font-display text-xs font-semibold tracking-[0.1em] text-white hover:bg-ink"
         >
           DOWNLOAD REPORT.MD
         </a>
-        <span className="border-l-2 border-amber-400/80 pl-2">partial support</span>
-        <span className="border-l-2 border-red-400/80 pl-2">not found in source</span>
+        <span className="border-l-2 border-warn pl-2">partial support</span>
+        <span className="border-l-2 border-err pl-2">not found in source</span>
         <span>Best-effort markers; the Verification tab is the source of truth.</span>
       </div>
-      <div className="max-w-[72ch] space-y-4 text-[15px] leading-7 text-zinc-200 [&_h1]:font-display [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:text-zinc-50 [&_h2]:mt-8 [&_h2]:font-display [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-zinc-50 [&_li]:ml-5 [&_li]:list-disc">
+      <div className="max-w-[72ch] space-y-4 text-[15px] leading-7 text-ink [&_h1]:font-display [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:text-ink [&_h2]:mt-8 [&_h2]:font-display [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-ink [&_li]:ml-5 [&_li]:list-disc">
         <ReactMarkdown
           components={{
             p: ({ children }) => <p className={flagFor(children)}>{withChips(children, sources)}</p>,

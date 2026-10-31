@@ -1,10 +1,14 @@
-// App shell: sidebar navigation (13 pages, hash routed), a top bar with the run selector
-// and run status, and the active page. All run data comes from the store (store.tsx).
+// APOLLO application shell: left sidebar (brand, 13 hash-routed sections, system / AI core /
+// user status), a compact top bar (section, date, run selector, live monitor, mobile menu),
+// and the live-monitor drawer. All run data comes from the store (store.tsx).
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import AgentStrip from './components/AgentStrip'
+import HitlPanel from './components/HitlPanel'
+import ProgressFeed from './components/ProgressFeed'
 import { PAGES, useRoute, type PageKey } from './router'
 import { StoreProvider, useStore } from './store'
-import { Pill, fmtTime } from './ui'
+import { Pill, btn, fmtTime } from './ui'
 import Dashboard from './pages/Dashboard'
 import NewResearch from './pages/NewResearch'
 import Analytics from './pages/Analytics'
@@ -25,7 +29,7 @@ const VIEW: Record<PageKey, () => JSX.Element> = {
   cost: Cost, verification: Verification, reports: Reports,
 }
 
-// 16px line icons, one path set per page.
+// 16px line icons, one path set per section.
 const ICON: Record<PageKey, string> = {
   dashboard: 'M2 2h5v6H2zM9 2h5v3H9zM9 7h5v7H9zM2 10h5v4H2z',
   new: 'M8 3v10M3 8h10',
@@ -42,107 +46,183 @@ const ICON: Record<PageKey, string> = {
   reports: 'M4 2h6l3 3v9H4zM10 2v3h3M6 8h5M6 10.5h5',
 }
 
-function Icon({ page }: { page: PageKey }) {
+function Icon({ d }: { d: string }) {
   return (
     <svg viewBox="0 0 16 16" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d={ICON[page]} />
+      <path d={d} />
     </svg>
   )
 }
 
-function Sidebar({ page, onNavigate }: { page: PageKey; onNavigate: () => void }) {
-  const { runs } = useStore()
-  const active = runs.filter((r) => r.status === 'running' || r.status === 'awaiting_input').length
+function StatusLine({ label, value, state }: { label: string; value: string; state: 'ok' | 'warn' | 'bad' | 'unknown' }) {
+  const dot = { ok: 'bg-ok', warn: 'bg-warn', bad: 'bg-err', unknown: 'bg-muted/40' }[state]
   return (
-    <nav aria-label="Main" className="flex h-full flex-col">
-      <div className="px-4 pb-4 pt-5">
-        <p className="font-display text-xl font-bold tracking-[0.3em] text-zinc-50">APOLLO</p>
-        <p className="mt-0.5 text-xs text-zinc-400">Deep research · cited sources only</p>
+    <div className="flex items-start gap-2 py-1.5">
+      <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 ${dot}`} aria-hidden="true" />
+      <div className="min-w-0">
+        <p className="label">{label}</p>
+        <p className="truncate text-xs text-ink" title={value}>{value}</p>
       </div>
-      <ul className="flex-1 space-y-0.5 overflow-y-auto px-2 pb-4">
-        {PAGES.map((p, i) => (
-          <li key={p.key}>
-            <a
-              href={`#/${p.key}`}
-              onClick={onNavigate}
-              aria-current={page === p.key ? 'page' : undefined}
-              className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm ${
-                page === p.key ? 'bg-accent/12 text-accent' : 'text-zinc-300 hover:bg-white/5 hover:text-zinc-100'
-              }`}
-            >
-              <span className="w-4 text-right font-mono text-[10px] text-zinc-500">{i + 1}</span>
-              <Icon page={p.key} />
-              <span className="truncate">{p.label}</span>
-              {p.key === 'new' && active > 0 && (
-                <span className="ml-auto rounded bg-accent/15 px-1.5 font-mono text-[10px] text-accent">{active} live</span>
-              )}
-            </a>
-          </li>
-        ))}
+    </div>
+  )
+}
+
+function Sidebar({ page, onNavigate }: { page: PageKey; onNavigate: () => void }) {
+  const { runs, backendOk, system } = useStore()
+  const live = runs.filter((r) => r.status === 'running' || r.status === 'awaiting_input').length
+  const provider = system?.llm.provider
+  const model = provider === 'groq' ? system?.llm.groq_model : system?.llm.gemini_model
+  const keyName = provider === 'groq' ? 'GROQ_API_KEY' : 'GEMINI_API_KEY'
+  const coreOk = system ? system.keys[keyName] && (system.keys.TAVILY_API_KEY || system.keys.SERPER_API_KEY) : null
+
+  return (
+    <nav aria-label="System navigation" className="flex h-full flex-col bg-surface">
+      <div className="border-b border-line px-5 pb-4 pt-5">
+        <p className="font-display text-[22px] font-bold leading-none tracking-[0.22em] text-ink">APOLLO</p>
+        <p className="label mt-1.5">Multi-agent research</p>
+      </div>
+      <p className="label px-5 pb-1 pt-4">System</p>
+      <ul className="min-h-0 flex-1 overflow-y-auto pb-3">
+        {PAGES.map((p, i) => {
+          const active = page === p.key
+          return (
+            <li key={p.key}>
+              <a
+                href={`#/${p.key}`}
+                onClick={onNavigate}
+                aria-current={active ? 'page' : undefined}
+                className={`relative flex items-center gap-3 px-5 py-[7px] text-[13.5px] ${active ? 'bg-accent/10 font-medium text-ink' : 'text-muted hover:bg-surface-2 hover:text-ink'}`}
+              >
+                {active && <span className="absolute inset-y-0 left-0 w-[3px] bg-accent-strong" aria-hidden="true" />}
+                <span className="w-4 text-right font-mono text-[10px] text-muted">{String(i + 1).padStart(2, '0')}</span>
+                <Icon d={ICON[p.key]} />
+                <span className="truncate">{p.label}</span>
+                {p.key === 'new' && live > 0 && <span className="ml-auto shrink-0 bg-accent-ink px-1.5 font-mono text-[10px] text-white" aria-label={`${live} live run${live === 1 ? '' : 's'}`}>{live}</span>}
+              </a>
+            </li>
+          )
+        })}
       </ul>
+      <div className="border-t border-line px-5 py-3">
+        <StatusLine label="System status" value={backendOk === null ? 'Connecting…' : backendOk ? `Backend online · ${live} live run${live === 1 ? '' : 's'}` : 'Backend unreachable'} state={backendOk === null ? 'unknown' : backendOk ? 'ok' : 'bad'} />
+        <StatusLine label="AI core" value={system ? `${provider} · ${model}` : 'Unknown'} state={coreOk === null ? 'unknown' : coreOk ? 'ok' : 'warn'} />
+        <div className="mt-2 flex items-center gap-2.5 border-t border-hair pt-3">
+          <span className="flex h-7 w-7 items-center justify-center bg-ink font-mono text-[11px] text-white" aria-hidden="true">LO</span>
+          <div className="min-w-0">
+            <p className="truncate text-xs font-medium text-ink">Local operator</p>
+            <p className="truncate text-[11px] text-muted">No sign-in: backend has no auth</p>
+          </div>
+        </div>
+      </div>
     </nav>
   )
 }
 
-function TopBar({ onMenu }: { onMenu: () => void }) {
-  const { runs, runId, select, selected, problem, setProblem } = useStore()
+function LiveMonitor({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { d, maxRounds, events, showHitl, answer, selected } = useStore()
+  useEffect(() => {
+    if (!open) return
+    const on = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', on)
+    return () => window.removeEventListener('keydown', on)
+  }, [open, onClose])
+  if (!open) return null
   return (
-    <header className="sticky top-0 z-30 border-b border-white/10 bg-void/90 backdrop-blur">
-      <div className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
-        <button onClick={onMenu} className="rounded-md border border-white/15 px-2 py-1 font-mono text-xs text-zinc-300 lg:hidden" aria-label="Open navigation">
-          MENU
-        </button>
-        <label htmlFor="run-select" className="font-mono text-[11px] uppercase text-zinc-400">Run</label>
-        <select
-          id="run-select"
-          value={runId ?? ''}
-          onChange={(e) => select(e.target.value)}
-          className="min-w-0 max-w-full flex-1 truncate rounded-md border border-white/10 bg-black/40 px-2 py-1.5 text-sm text-zinc-100 focus:border-accent/70 focus:outline-none sm:max-w-md"
-        >
-          {!runs.length && <option value="">No runs yet</option>}
-          {runs.map((r) => (
-            <option key={r.run_id} value={r.run_id}>
-              {fmtTime(r.created_at)} · {r.topic}
-            </option>
-          ))}
-        </select>
-        {selected && <Pill status={selected.status} label={selected.status.replace('_', ' ')} />}
-        {problem && (
-          <p role="alert" className="flex basis-full items-start gap-2 font-mono text-xs text-amber-300 xl:ml-auto xl:basis-auto xl:max-w-xl">
-            <span className="min-w-0 [overflow-wrap:anywhere]">! {problem}</span>
-            <button onClick={() => setProblem(null)} className="text-zinc-400 hover:text-zinc-100" aria-label="Dismiss">×</button>
-          </p>
-        )}
+    <div className="no-print fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label="Live monitor">
+      <button className="absolute inset-0 bg-ink/25" onClick={onClose} aria-label="Close live monitor" />
+      <aside className="absolute inset-y-0 right-0 flex w-full max-w-[460px] flex-col border-l border-line bg-workspace">
+        <header className="flex items-center justify-between border-b border-line bg-surface px-4 py-3">
+          <div className="min-w-0">
+            <p className="label">Live monitor</p>
+            <p className="truncate text-sm text-ink">{selected?.topic ?? 'No run selected'}</p>
+          </div>
+          <button onClick={onClose} className={btn.secondary}>Close</button>
+        </header>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+          <AgentStrip d={d} maxRounds={maxRounds} />
+          {showHitl && (d.planPending
+            ? <HitlPanel key={d.pendingAt} mode="plan" items={d.subQuestions} onAnswer={answer} />
+            : <HitlPanel key={d.pendingAt} mode="gaps" items={d.gapsPending ?? []} onAnswer={answer} />)}
+          {events.length ? <ProgressFeed events={events} /> : <p className="text-sm text-muted">No events yet.</p>}
+        </div>
+      </aside>
+    </div>
+  )
+}
+
+function TopBar({ page, onMenu, onMonitor }: { page: PageKey; onMenu: () => void; onMonitor: () => void }) {
+  const { runs, runId, select, selected, problem, setProblem, busy } = useStore()
+  const title = PAGES.find((p) => p.key === page)?.label
+  const today = new Date().toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+  return (
+    <header className="no-print sticky top-0 z-30 border-b border-line bg-surface">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 sm:px-6">
+        <button onClick={onMenu} className={`${btn.secondary} lg:hidden`} aria-label="Open navigation">Menu</button>
+        <p className="min-w-0 flex-1 truncate font-mono text-[11px] uppercase tracking-wide text-muted sm:flex-none">
+          APOLLO <span aria-hidden="true">/</span> <span className="text-ink">{title}</span>
+        </p>
+        <span className="hidden font-mono text-[11px] text-muted md:inline">· {today}</span>
+        {/* below sm the session controls take their own full-width row */}
+        <div className="order-last flex min-w-0 basis-full items-center gap-2 sm:order-none sm:ml-auto sm:basis-auto">
+          <label htmlFor="run-select" className="label hidden sm:block">Session</label>
+          <select
+            id="run-select"
+            value={runId ?? ''}
+            onChange={(e) => select(e.target.value)}
+            className="min-w-0 max-w-full flex-1 truncate border border-line bg-surface px-2 py-1 text-[13px] text-ink focus:border-accent-strong focus:outline-none sm:w-80 sm:flex-none"
+          >
+            {!runs.length && <option value="">No research sessions yet</option>}
+            {runs.map((r) => <option key={r.run_id} value={r.run_id}>{fmtTime(r.created_at)} · {r.topic}</option>)}
+          </select>
+          {selected && <span className="hidden sm:inline"><Pill status={selected.status} /></span>}
+          <button onClick={onMonitor} className={btn.secondary} aria-label="Open live monitor">
+            <span className={`h-1.5 w-1.5 ${busy ? 'bg-accent-strong' : 'bg-muted/40'}`} aria-hidden="true" />
+            Live
+          </button>
+        </div>
       </div>
+      {problem && (
+        <div role="alert" className="flex items-start gap-3 border-t border-warn/60 bg-warn/15 px-4 py-1.5 text-xs text-warn-ink sm:px-6">
+          <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{problem}</span>
+          <button onClick={() => setProblem(null)} className="font-mono underline" aria-label="Dismiss message">dismiss</button>
+        </div>
+      )}
     </header>
   )
 }
 
 function Shell() {
   const page = useRoute()
-  const [open, setOpen] = useState(false)
+  const [menu, setMenu] = useState(false)
+  const [monitor, setMonitor] = useState(false)
   const View = VIEW[page]
-  const title = PAGES.find((p) => p.key === page)?.label
+  useEffect(() => {
+    if (!menu) return
+    const on = (e: KeyboardEvent) => e.key === 'Escape' && setMenu(false)
+    window.addEventListener('keydown', on)
+    return () => window.removeEventListener('keydown', on)
+  }, [menu])
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[248px_minmax(0,1fr)]">
-      <aside className="sticky top-0 hidden h-screen border-r border-white/10 bg-black/30 lg:block">
+    <div className="min-h-screen lg:grid lg:grid-cols-[256px_minmax(0,1fr)]">
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:bg-surface focus:p-2">Skip to content</a>
+      <aside className="no-print sticky top-0 hidden h-screen border-r border-line lg:block">
         <Sidebar page={page} onNavigate={() => undefined} />
       </aside>
-      {open && (
-        <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
-          <button className="absolute inset-0 bg-black/60" onClick={() => setOpen(false)} aria-label="Close navigation" />
-          <div className="absolute inset-y-0 left-0 w-64 border-r border-white/10 bg-void">
-            <Sidebar page={page} onNavigate={() => setOpen(false)} />
+      {menu && (
+        <div className="no-print fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
+          <button className="absolute inset-0 bg-ink/25" onClick={() => setMenu(false)} aria-label="Close navigation" />
+          <div className="absolute inset-y-0 left-0 w-[272px] max-w-[85vw] border-r border-line">
+            <Sidebar page={page} onNavigate={() => setMenu(false)} />
           </div>
         </div>
       )}
-      <div className="min-w-0">
-        <TopBar onMenu={() => setOpen(true)} />
-        <main className="mx-auto max-w-[1280px] px-4 py-6 sm:px-6">
-          <h1 className="mb-5 font-display text-2xl font-semibold tracking-wide text-zinc-50">{title}</h1>
+      <div className="min-w-0 bg-workspace">
+        <TopBar page={page} onMenu={() => setMenu(true)} onMonitor={() => setMonitor(true)} />
+        <main id="main" className="mx-auto max-w-[1320px] px-4 py-6 sm:px-6 lg:px-8">
           <View />
         </main>
       </div>
+      <LiveMonitor open={monitor} onClose={() => setMonitor(false)} />
     </div>
   )
 }

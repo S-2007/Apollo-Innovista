@@ -1,5 +1,5 @@
 // ProgressFeed: the run's event log, one tagged line per event with a monospace
-// timestamp relative to run start. Warnings amber, gaps cyan, auto-scrolls to newest.
+// timestamp relative to run start. Warnings amber, gaps blue, auto-scrolls to newest.
 
 import { useEffect, useRef } from 'react'
 import { isKnown, toMs, type AnyEvent } from '../api'
@@ -76,10 +76,10 @@ function describe(e: AnyEvent): Line {
 }
 
 const TONE: Record<Tone, { tag: string; text: string }> = {
-  normal: { tag: 'text-zinc-400', text: 'text-zinc-200' },
-  good: { tag: 'text-emerald-400', text: 'text-zinc-200' },
-  warn: { tag: 'text-amber-400', text: 'text-amber-200' },
-  gap: { tag: 'text-accent', text: 'text-cyan-100' },
+  normal: { tag: 'text-muted', text: 'text-ink' },
+  good: { tag: 'text-ok-ink', text: 'text-ink' },
+  warn: { tag: 'text-warn-ink', text: 'text-warn-ink' },
+  gap: { tag: 'text-accent-ink', text: 'text-ink' },
 }
 
 const clock = (ms: number) => {
@@ -99,22 +99,22 @@ export default function ProgressFeed({ events }: { events: AnyEvent[] }) {
   const t0 = Math.min(...events.map((e) => toMs(e.ts)))
 
   return (
-    <section aria-label="Event log" className="rounded-lg border border-white/10 bg-white/[0.03]">
-      <h2 className="border-b border-white/10 px-4 py-2.5 font-display text-sm font-semibold tracking-wide">Event log</h2>
+    <section aria-label="Event log" className="rounded-sm border border-hair bg-surface">
+      <h2 className="border-b border-hair px-4 py-2.5 font-display text-sm font-semibold tracking-wide">Event log</h2>
       <ol ref={box} className="max-h-[40vh] space-y-1 overflow-y-auto px-4 py-3 font-mono text-xs" aria-live="polite">
         {events.map((e, i) => {
           const line = describe(e)
           const tone = TONE[line.tone]
           return (
             <li key={i} className="feed-in grid grid-cols-[3.25rem_4.5rem_minmax(0,1fr)] gap-x-2 leading-relaxed">
-              <span className="tabular-nums text-zinc-400">{clock(toMs(e.ts) - t0)}</span>
+              <span className="tabular-nums text-muted">{clock(toMs(e.ts) - t0)}</span>
               <span className={`font-medium ${tone.tag}`}>{line.tag}</span>
               <span className={`min-w-0 break-words ${tone.text}`}>
                 {line.text}
                 {line.details && line.details.length > 0 && (
                   <details className="mt-0.5">
-                    <summary className="cursor-pointer text-zinc-400 hover:text-zinc-200">{line.details.length} detail{line.details.length === 1 ? '' : 's'}</summary>
-                    <ul className="mt-1 space-y-0.5 text-zinc-300">
+                    <summary className="cursor-pointer text-muted hover:text-ink">{line.details.length} detail{line.details.length === 1 ? '' : 's'}</summary>
+                    <ul className="mt-1 space-y-0.5 text-muted">
                       {line.details.map((d, j) => (
                         <li key={j} className="break-words">· {d}</li>
                       ))}

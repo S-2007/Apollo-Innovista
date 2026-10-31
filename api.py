@@ -382,7 +382,8 @@ def get_report(run_id: str) -> dict:
         "references": state["references"],
         "sources": _source_rows(state),
         "verification": [
-            {"claim": c["claim"], "status": c["status"], "evidence": c["best_match"] or c["evidence"], "source_ids": c["source_ids"]}
+            {"claim": c["claim"], "status": c["status"], "evidence": c["best_match"] or c["evidence"], "source_ids": c["source_ids"],
+             "similarity": round(c["similarity"], 3)}
             for c in state["claims"]
         ],
         "contradictions": state["contradictions"],

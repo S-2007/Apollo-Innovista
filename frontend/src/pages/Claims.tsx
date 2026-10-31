@@ -1,79 +1,168 @@
-// Claims & Evidence: every checked claim with its status, the source sentence that
-// supports it, and links to the cited sources. Filter by status, search by text.
+// Claims & Evidence: every checked claim, the claim-evidence graph (claims ↔ cited sources),
+// and a detail panel with the full evidence chain: claim → status and similarity → the exact
+// best-matching source sentence → the source page. Filter by status, search, sort.
 
 import { useState } from 'react'
+import type { Claim, Source } from '../api'
 import { useStore } from '../store'
-import { Card, Empty, NeedsRun, Pill, hostOf } from '../ui'
+import { Empty, NeedsRun, PageHeader, Panel, Pill, Segmented, Unavailable, field, fmtDate, hostOf } from '../ui'
 
 const FILTERS = ['all', 'verified', 'partial', 'not_found', 'unchecked'] as const
 type Filter = (typeof FILTERS)[number]
+type Sort = 'report' | 'confidence' | 'status'
+const RANK = { not_found: 0, unchecked: 1, partial: 2, verified: 3 } as const
 
 export default function Claims() {
-  const { report, busy } = useStore()
+  const { report, busy, selected } = useStore()
   const [filter, setFilter] = useState<Filter>('all')
+  const [sort, setSort] = useState<Sort>('report')
   const [q, setQ] = useState('')
-  if (!report) return <NeedsRun what="Claims and evidence" busy={busy} />
+  const [open, setOpen] = useState<number | null>(null)
+  if (!report) return <><PageHeader kicker="06 · Claims & evidence" title="Claim-level evidence" /><NeedsRun what="Claims and evidence" busy={busy} /></>
 
   const claims = report.verification ?? []
   const byId = new Map(report.sources.map((s) => [s.id, s]))
   const count = (f: Filter) => (f === 'all' ? claims.length : claims.filter((c) => c.status === f).length)
   const needle = q.trim().toLowerCase()
-  const shown = claims.filter((c) => (filter === 'all' || c.status === filter) && (!needle || c.claim.toLowerCase().includes(needle) || (c.evidence ?? '').toLowerCase().includes(needle)))
+  const shown = claims
+    .map((c, i) => ({ c, i }))
+    .filter(({ c }) => (filter === 'all' || c.status === filter) && (!needle || c.claim.toLowerCase().includes(needle) || (c.evidence ?? '').toLowerCase().includes(needle)))
+    .sort((a, b) => sort === 'confidence' ? (b.c.similarity ?? -1) - (a.c.similarity ?? -1) : sort === 'status' ? RANK[a.c.status] - RANK[b.c.status] : a.i - b.i)
+  const active = open !== null ? claims[open] : undefined
 
   return (
-    <Card>
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div role="group" aria-label="Filter claims by status" className="flex flex-wrap gap-2">
-          {FILTERS.map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              aria-pressed={filter === f}
-              className={`rounded-md border px-2.5 py-1 font-mono text-xs ${filter === f ? 'border-accent bg-accent/15 text-accent' : 'border-white/15 text-zinc-300 hover:border-white/30'}`}
-            >
-              {f.replace('_', ' ')} · {count(f)}
-            </button>
-          ))}
+    <div>
+      <PageHeader kicker="06 · Claims & evidence" title="Claim-level evidence">
+        <span className="font-mono text-xs text-muted">{claims.length} claims · {report.sources.length} sources</span>
+      </PageHeader>
+
+      <Panel label="Claim-evidence graph" title="Which sources each claim rests on" aside="click a claim">
+        <EvidenceGraph claims={claims} sources={report.sources} open={open} onOpen={setOpen} />
+      </Panel>
+
+      <div className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
+        <Panel pad={false}>
+          <div className="flex flex-wrap items-center gap-2 border-b border-hair p-3">
+            <div role="group" aria-label="Filter claims by status" className="flex flex-wrap gap-1.5">
+              {FILTERS.map((f) => (
+                <button key={f} onClick={() => setFilter(f)} aria-pressed={filter === f} className={`border px-2 py-0.5 font-mono text-[11px] uppercase ${filter === f ? 'border-ink bg-ink text-white' : 'border-line text-muted hover:text-ink'}`}>
+                  {f.replace('_', ' ')} · {count(f)}
+                </button>
+              ))}
+            </div>
+            <Segmented<Sort> label="Sort claims" value={sort} onChange={setSort} options={[{ value: 'report', label: 'Report order' }, { value: 'confidence', label: 'Similarity' }, { value: 'status', label: 'Weakest first' }]} />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search claims or evidence" aria-label="Search claims or evidence" className={`${field} py-1 sm:ml-auto sm:w-56`} />
+          </div>
+          {!shown.length ? <Empty>No claims match.</Empty> : (
+            <ul className="divide-y divide-hair">
+              {shown.map(({ c, i }) => (
+                <li key={i}>
+                  <button onClick={() => setOpen(open === i ? null : i)} aria-expanded={open === i} className={`grid w-full grid-cols-[2.25rem_minmax(0,1fr)_auto] items-start gap-2 px-3 py-2.5 text-left hover:bg-workspace ${open === i ? 'bg-accent/5' : ''}`}>
+                    <span className="font-mono text-[11px] text-muted">C{i + 1}</span>
+                    <span className="text-sm text-ink">{c.claim}</span>
+                    <span className="flex flex-col items-end gap-1">
+                      <Pill status={c.status} />
+                      {c.similarity !== undefined && <span className="font-mono text-[10.5px] text-muted">sim {c.similarity.toFixed(2)}</span>}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+
+        <div className="min-w-0 xl:sticky xl:top-16 xl:self-start">
+          {active && open !== null ? <ClaimDetail claim={active} n={open + 1} byId={byId} retrieved={selected?.created_at} /> : (
+            <Panel label="Evidence chain" title="Select a claim"><Empty>Choose a claim to see its evidence chain.</Empty></Panel>
+          )}
         </div>
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search claims or evidence"
-          aria-label="Search claims or evidence"
-          className="ml-auto w-full rounded-md border border-white/10 bg-black/40 px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-accent/70 focus:outline-none sm:w-64"
-        />
       </div>
-      {!shown.length ? (
-        <Empty>No claims match.</Empty>
-      ) : (
-        <ul className="space-y-3">
-          {shown.map((c, i) => (
-            <li key={`${i}-${c.claim.slice(0, 20)}`} className="rounded-md border border-white/10 bg-black/20 p-3">
-              <div className="flex items-start gap-3">
-                <p className="min-w-0 flex-1 text-sm text-zinc-100">{c.claim}</p>
-                <Pill status={c.status} />
-              </div>
-              <blockquote className="mt-2 border-l-2 border-white/15 pl-3 text-xs leading-relaxed text-zinc-400">
-                {c.evidence ? `“${c.evidence}”` : c.status === 'unchecked' ? 'Not checked: the verifier was unavailable or the claim cap was reached.' : 'No matching text in the retrieved source.'}
-              </blockquote>
-              {(c.source_ids ?? []).length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {(c.source_ids ?? []).map((id) => {
-                    const s = byId.get(id)
-                    return s ? (
-                      <a key={id} href={s.url} target="_blank" rel="noreferrer" title={s.title} className="rounded border border-accent/30 bg-accent/5 px-1.5 py-0.5 font-mono text-[11px] text-accent hover:bg-accent hover:text-void">
-                        {id} · {hostOf(s.url)}
-                      </a>
-                    ) : (
-                      <span key={id} className="rounded border border-red-400/40 px-1.5 py-0.5 font-mono text-[11px] text-red-300">{id} · unknown source</span>
-                    )
-                  })}
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
+    </div>
+  )
+}
+
+function ClaimDetail({ claim, n, byId, retrieved }: { claim: Claim; n: number; byId: Map<string, Source>; retrieved?: number }) {
+  const ids = claim.source_ids ?? []
+  const unknown = ids.filter((id) => !byId.has(id))
+  return (
+    <Panel label={`Claim C${n}`} title="Evidence chain" aside={<Pill status={claim.status} />}>
+      <ol className="space-y-4 text-sm">
+        <li>
+          <p className="label">1 · Claim (from the report)</p>
+          <p className="mt-1 text-ink">{claim.claim}</p>
+        </li>
+        <li>
+          <p className="label">2 · Verification</p>
+          <p className="mt-1 text-ink">
+            {claim.status === 'verified' ? 'Supported by the source text.' : claim.status === 'partial' ? 'The source discusses this, but does not fully support it.' : claim.status === 'not_found' ? 'No supporting text found in the cited source.' : 'Not checked (verifier unavailable or claim cap reached).'}
+          </p>
+          {claim.similarity !== undefined && <p className="mt-1 font-mono text-[11px] text-muted">Semantic similarity to best sentence: {claim.similarity.toFixed(3)} (0–1; not a probability)</p>}
+        </li>
+        <li>
+          <p className="label">3 · Exact source passage</p>
+          <blockquote className="mt-1 border-l-2 border-accent-strong bg-workspace px-3 py-2 text-[13px] leading-relaxed text-ink">{claim.evidence ? `“${claim.evidence}”` : 'No matching sentence in the retrieved source text.'}</blockquote>
+        </li>
+        <li>
+          <p className="label">4 · Cited sources · citation check</p>
+          <p className="mt-1 text-xs">{unknown.length ? <span className="text-err-ink">Unknown source ids: {unknown.join(', ')}</span> : <span className="text-ok-ink">✓ every citation maps to a retrieved URL</span>}</p>
+          <ul className="mt-2 space-y-2">
+            {ids.map((id) => {
+              const s = byId.get(id)
+              if (!s) return null
+              return (
+                <li key={id} className="border border-line p-2.5">
+                  <p className="font-mono text-[11px] text-accent-ink">{id} · {hostOf(s.url)}</p>
+                  <a href={s.url} target="_blank" rel="noreferrer" className="mt-0.5 block text-sm text-ink underline decoration-line underline-offset-2 hover:decoration-ink">{s.title || s.url}</a>
+                  {s.snippet && <p className="mt-1 text-xs text-muted">{s.snippet}</p>}
+                  <p className="mt-1.5 font-mono text-[10.5px] text-muted">Text: {s.extracted_by} · Retrieved {retrieved ? fmtDate(retrieved) : '–'} · Published: not available</p>
+                </li>
+              )
+            })}
+          </ul>
+        </li>
+      </ol>
+      {<div className="mt-4"><Unavailable what="Publication dates" need="publish dates from the search API or page metadata; only the retrieval date is known." /></div>}
+    </Panel>
+  )
+}
+
+// Bipartite graph: claims (left) → sources (right), edges coloured and dashed by claim status.
+function EvidenceGraph({ claims, sources, open, onOpen }: { claims: Claim[]; sources: Source[]; open: number | null; onOpen: (i: number | null) => void }) {
+  const used = sources.filter((s) => claims.some((c) => c.source_ids?.includes(s.id)))
+  if (!claims.length || !used.length) return <Empty>No claim-to-source links.</Empty>
+  const rowH = 22
+  const H = Math.max(claims.length, used.length) * rowH + 20
+  const W = 760, lx = 120, rx = W - 170
+  const cy = (i: number) => 14 + i * ((H - 28) / Math.max(1, claims.length - 1 || 1))
+  const sy = (i: number) => 14 + i * ((H - 28) / Math.max(1, used.length - 1 || 1))
+  const color = { verified: '#2f9e6b', partial: '#d99a1f', not_found: '#ef6673', unchecked: '#9aa1ab' } as const
+  const dash = { verified: undefined, partial: '5 3', not_found: '2 3', unchecked: '1 4' } as const
+  return (
+    <div className="overflow-x-auto">
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto min-w-[640px] w-full" role="img" aria-label={`Graph of ${claims.length} claims linked to ${used.length} sources`}>
+        {claims.map((c, i) =>
+          (c.source_ids ?? []).map((id) => {
+            const j = used.findIndex((s) => s.id === id)
+            if (j < 0) return null
+            const on = open === null || open === i
+            return <path key={`${i}-${id}`} d={`M${lx},${cy(i)} C${(lx + rx) / 2},${cy(i)} ${(lx + rx) / 2},${sy(j)} ${rx},${sy(j)}`} fill="none" stroke={color[c.status]} strokeDasharray={dash[c.status]} strokeWidth={open === i ? 2 : 1.1} opacity={on ? 0.9 : 0.12} />
+          }),
+        )}
+        {claims.map((c, i) => (
+          <g key={i} onClick={() => onOpen(open === i ? null : i)} className="cursor-pointer" role="button" tabIndex={0} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onOpen(open === i ? null : i)} aria-label={`Claim C${i + 1}, ${c.status.replace('_', ' ')}`}>
+            <rect x={lx - 108} y={cy(i) - 8} width={104} height={16} fill={open === i ? '#111318' : '#ffffff'} stroke="rgba(17,19,24,.3)" />
+            <text x={lx - 100} y={cy(i) + 4} fontFamily="JetBrains Mono, monospace" fontSize="9" fill={open === i ? '#fff' : '#111318'}>C{i + 1} · {c.status.replace('_', ' ')}</text>
+            <circle cx={lx} cy={cy(i)} r={3.5} fill={color[c.status]} />
+          </g>
+        ))}
+        {used.map((s, j) => (
+          <g key={s.id}>
+            <circle cx={rx} cy={sy(j)} r={3.5} fill="#3b82f6" />
+            <text x={rx + 8} y={sy(j) + 4} fontFamily="JetBrains Mono, monospace" fontSize="9" fill="#111318">{s.id} · {hostOf(s.url).slice(0, 22)}</text>
+          </g>
+        ))}
+      </svg>
+      <p className="mt-1 text-[11px] text-muted">Line style shows status: solid verified · long dash partial · short dash not found · dotted unchecked.</p>
+    </div>
   )
 }

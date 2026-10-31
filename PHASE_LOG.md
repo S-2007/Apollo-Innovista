@@ -344,3 +344,36 @@ Verification, Final Reports.
   page made the cause visible. Groq was used for the check above.
 - No live run produced a contradiction, so the Contradictions page was seen only in its empty state live.
 - Runs made before metering show 0 tokens/searches.
+
+## Phase 3.2: APOLLO light UI migration (2026-10-31)
+
+**Asked:** replace the presentation layer with the APOLLO interface (light scientific theme, token-based design
+system, sidebar with status/AI core/user, top bar with live monitor, richer modules per section) without changing
+backend behaviour or inventing data. No target files were attached, so the written spec was the source of truth.
+
+**What changed**
+- `index.css`: design tokens (#ECEEF1 / #F5F6F7 / #FFFFFF, ink #111318, muted #68717D, blue #4C9AFF / #3B82F6,
+  warning #F0B74B, error #EF6673, line/hair borders). Blue text uses `accent-ink` #1F5FC8 because the spec blues are
+  below 4.5:1 on white. Print stylesheet for "PDF (print)".
+- `ui.tsx` primitives: Panel, PageHeader, Stat, Pill (status always written out), StackedBar, Legend, Meter,
+  BarChart (+ screen-reader table), Segmented, Confirm, Unavailable, NeedsRun, `bucketize`, `download`.
+- `insights.ts`: classifies the run's own error lines (blocked/paywalled, PDF skipped, no main text, uncited sentence
+  removed, invalid citation removed, quota switch...) and a domain-name heuristic for source category.
+- Router: `#/<page>?run=<id>` deep links (share link); existing `#/<page>` URLs unchanged.
+- Backend: one additive field, `similarity` on each `/report` verification row (already in graph state).
+- Rejecting the plan (HITL panel) and Terminate now ask for confirmation.
+
+**Shown as unavailable instead of invented:** academic search, credibility/authority/originality scores, publication
+dates, AI-generated-content and prompt-injection detection, conflict classification, false-premise detection, pause /
+mid-run cancel, per-run source/agent/priority/strictness settings, document upload, category field, platform
+benchmarks, DOCX export.
+
+**Checks**
+1. `npm run build` (tsc strict + vite) passes; `pytest` 62 passed.
+2. Every page opened with the saved Topic B run; 375 px: no horizontal scroll on all 13 pages; 768 px drawer works.
+3. Deep link `#/reports?run=<older id>` opened that run.
+4. Live HITL run: plan appeared on Research Planning, Terminate → confirm → run `rejected / plan_rejected_by_user`.
+
+**Bugs found while checking (fixed):** floated legend broke the depth selector; report section numbers started at 2
+(StrictMode double render with a counter); session selector collapsed on phones; nav drawer ignored Escape;
+live badge truncated the nav label.
