@@ -1,6 +1,5 @@
 """Accounts: register / login / logout / me, JWT sessions, protected routes, per-user runs. Offline."""
 
-import sqlite3
 import time
 
 import jwt
@@ -10,7 +9,9 @@ from fastapi.testclient import TestClient
 import api
 import auth
 import config
+import db
 from graph import nodes
+from sqlalchemy import select
 from tools import passages as passages_mod
 from verify import claims as claims_mod
 
@@ -21,7 +22,8 @@ PW = "correct horse"
 
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch, tmp_path):
-    monkeypatch.setattr(config, "AUTH_DB", str(tmp_path / "users.db"))
+    monkeypatch.setattr(config, "DATABASE_URL", f"sqlite:///{tmp_path / 'apollo-test.db'}")
+    monkeypatch.setattr(config, "LEGACY_USERS_DB", str(tmp_path / "no-legacy-users.db"))
     monkeypatch.setattr(api, "RUNS_DIR", tmp_path / "runs")
     monkeypatch.setattr(nodes, "web_search", fake_search())
     monkeypatch.setattr(nodes, "page_content", lambda url, raw, errors: (f"Page text for {url}. It reports a finding.", "trafilatura"))
@@ -75,8 +77,9 @@ def test_duplicate_email_is_rejected():
 
 def test_password_is_stored_hashed():
     signed_in()
-    row = sqlite3.connect(config.AUTH_DB).execute("SELECT password_hash FROM users").fetchone()
-    assert PW not in row[0] and row[0].startswith("scrypt$")
+    with db.engine().connect() as conn:
+        stored = conn.execute(select(db.users.c.password_hash)).scalar_one()
+    assert PW not in stored and stored.startswith("scrypt$")
 
 
 def test_login_logout_and_generic_errors():

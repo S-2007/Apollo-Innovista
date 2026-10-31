@@ -20,3 +20,6 @@ uvicorn==0.54.0
 httpx==0.28.1
 # Login: signed session tokens (JWT, HS256)
 PyJWT==2.10.1
+# Database: SQLAlchemy Core over Postgres (Neon, psycopg 3) or local SQLite
+SQLAlchemy==2.0.36
+psycopg[binary]==3.2.3

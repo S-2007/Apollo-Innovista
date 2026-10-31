@@ -97,7 +97,13 @@ OUTPUT_DIR = os.getenv("OUTPUT_DIR", "output")
 # secret is generated at startup, which works but signs everyone out whenever the server restarts.
 JWT_SECRET = os.getenv("JWT_SECRET", "")
 JWT_TTL_HOURS = _int("JWT_TTL_HOURS", 12)
-AUTH_DB = os.getenv("AUTH_DB", os.path.join(OUTPUT_DIR, "users.db"))
+
+# --- Database (users and saved runs; see db.py) ---
+# Postgres URL, e.g. Neon's "postgresql://user:password@host/dbname?sslmode=require". Empty = local SQLite.
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+LOCAL_DB = os.getenv("LOCAL_DB", os.path.join(OUTPUT_DIR, "apollo.db"))
+# Older local stores imported once into the database at startup (then no longer used).
+LEGACY_USERS_DB = os.path.join(OUTPUT_DIR, "users.db")
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"  # true when served over HTTPS
 
 # Hard backstop for LangGraph itself, independent of our own round logic.

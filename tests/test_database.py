@@ -1,0 +1,85 @@
+"""Database layer: Neon URL handling, run persistence, one-time import of older file stores. Offline (SQLite)."""
+
+import json
+import sqlite3
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+
+import api
+import auth
+import config
+import db
+
+
+@pytest.fixture(autouse=True)
+def isolated(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "DATABASE_URL", f"sqlite:///{tmp_path / 'apollo-test.db'}")
+    monkeypatch.setattr(config, "LEGACY_USERS_DB", str(tmp_path / "users.db"))
+    monkeypatch.setattr(api, "RUNS_DIR", tmp_path / "runs")
+    auth._failures.clear()
+    api._runs.clear()
+    return tmp_path
+
+
+@pytest.mark.parametrize("given, expected", [
+    ("postgresql://u:p@ep-x.neon.tech/apollo?sslmode=require", "postgresql+psycopg://u:p@ep-x.neon.tech/apollo?sslmode=require"),
+    ("postgres://u:p@host/db", "postgresql+psycopg://u:p@host/db"),
+    ("", None),
+])
+def test_neon_urls_use_the_psycopg_driver(monkeypatch, tmp_path, given, expected):
+    monkeypatch.setattr(config, "DATABASE_URL", given)
+    monkeypatch.setattr(config, "LOCAL_DB", str(tmp_path / "local.db"))
+    assert db.database_url() == (expected or f"sqlite:///{tmp_path / 'local.db'}")
+    assert db.kind() == ("postgres" if expected else "sqlite")
+
+
+def _finished_run(run_id="r1", owner=None, text="clean"):
+    run = api.Run("Topic", 1, False, run_id=run_id, owner=owner)
+    run.status, run.finished_at = "complete", run.created_at + 1000
+    run.events = [{"type": "section_draft", "data": {}, "ts": 1}, {"type": "complete", "data": {}, "ts": 2}]
+    run.state = {"report": f"# Topic\n\n## Introduction\n\n{text}", "references": [], "findings": [], "plan": ["q"],
+                 "claims": [], "contradictions": [], "errors": [], "round_no": 1, "status": "complete",
+                 "stop_reason": "hermes_complete", "sections": [], "topic": "Topic"}
+    return run
+
+
+def test_saved_run_round_trips_without_drafts_or_nul_characters():
+    api._save(_finished_run(text="bad\x00byte"))
+    api._runs.clear()
+    api._load_saved()
+    run = api._runs["r1"]
+    assert [e["type"] for e in run.events] == ["complete"]
+    assert "\x00" not in run.state["report"] and "badbyte" in run.state["report"]
+
+
+def test_report_download_needs_no_local_files():
+    c = TestClient(api.app)
+    user = c.post("/api/auth/register", json={"name": "A", "email": "a@example.com", "password": "correct horse"}).json()["user"]
+    api._runs["r1"] = _finished_run(owner=user["id"])  # no output/runs/r1 directory exists
+    r = c.get("/api/runs/r1/report.md")
+    assert r.status_code == 200 and r.text.startswith("# Topic") and "attachment" in r.headers["content-disposition"]
+
+
+def test_older_file_stores_are_imported_once(isolated):
+    # an account from the old users.db, with its password hash
+    old = sqlite3.connect(config.LEGACY_USERS_DB)
+    old.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT, name TEXT, password_hash TEXT, created_at INTEGER)")
+    old.execute("INSERT INTO users VALUES (7, 'old@example.com', 'Old', ?, 1)", (auth.hash_password("old password 1"),))
+    old.commit()
+    old.close()
+    # a run file owned by that account, and one from before accounts
+    for rid, owner in (("owned", "7"), ("legacy", None)):
+        d = isolated / "runs" / rid
+        d.mkdir(parents=True)
+        d.joinpath("run.json").write_text(json.dumps({"id": rid, "owner": owner, "topic": rid, "status": "complete",
+                                                       "max_rounds": 1, "hitl": False, "created_at": 1, "events": [],
+                                                       "state": None, "calls": []}), encoding="utf-8")
+    api._load_saved()
+    api._load_saved()  # idempotent: nothing is imported twice
+    with db.engine().connect() as conn:
+        users = conn.execute(select(db.users)).all()
+        runs = {r.id: r.owner for r in conn.execute(select(db.runs.c.id, db.runs.c.owner))}
+    assert len(users) == 1 and runs == {"owned": str(users[0].id), "legacy": None}
+    assert auth.login("old@example.com", "old password 1")["id"] == str(users[0].id)  # same password still works

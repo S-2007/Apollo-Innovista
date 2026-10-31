@@ -13,6 +13,8 @@ from fastapi.testclient import TestClient
 
 import api
 import config
+import db
+from sqlalchemy import select
 from graph import nodes
 from tools import passages as passages_mod
 from verify import claims as claims_mod
@@ -33,7 +35,8 @@ def offline(monkeypatch, tmp_path):
     monkeypatch.setattr(claims_mod, "llm_chat", lambda *a, **k: '{"supported": true, "evidence": "x"}')
     monkeypatch.setattr(claims_mod, "_available_chain", lambda: [("groq", "m")])
     monkeypatch.setattr(api, "RUNS_DIR", tmp_path / "runs")
-    monkeypatch.setattr(config, "AUTH_DB", str(tmp_path / "users.db"))
+    monkeypatch.setattr(config, "DATABASE_URL", f"sqlite:///{tmp_path / 'apollo-test.db'}")
+    monkeypatch.setattr(config, "LEGACY_USERS_DB", str(tmp_path / "no-legacy-users.db"))
     api._runs.clear()
 
 
@@ -362,7 +365,8 @@ def test_report_streams_before_verification(client):
 def test_drafts_are_not_saved_to_disk(client):
     run_id = _start(client)
     _wait(client, run_id, lambda s: s["status"] not in api.ACTIVE)
-    saved = json.loads((api.RUNS_DIR / run_id / "run.json").read_text(encoding="utf-8"))
+    with db.engine().connect() as conn:
+        saved = conn.execute(select(db.runs.c.doc).where(db.runs.c.id == run_id)).scalar_one()
     assert not any(e["type"] == "section_draft" for e in saved["events"])
     assert any(e["type"] == "section_written" for e in saved["events"])
 

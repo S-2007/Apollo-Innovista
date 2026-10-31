@@ -2,26 +2,25 @@
 
 - Passwords are hashed with scrypt (Python's hashlib; no extra dependency) and a random salt per user.
   The plain password is never stored or logged.
-- Users live in a small SQLite file (config.AUTH_DB).
+- Users live in the `users` table of the app database (db.py: Neon Postgres via DATABASE_URL, or local SQLite).
 - A session is a JWT (HS256, signed with config.JWT_SECRET) that expires after JWT_TTL_HOURS. api.py
   puts it in an HttpOnly cookie, so page scripts cannot read it and the live event stream and the
   contradiction-map iframe are authenticated without exposing the token in URLs.
 - Failed logins are rate-limited per email (LOGIN_MAX_FAILURES in LOGIN_WINDOW_SECONDS).
 """
 
-import contextlib
 import hashlib
 import hmac
 import re
 import secrets
-import sqlite3
 import threading
 import time
-from pathlib import Path
-
 import jwt
+from sqlalchemy import insert, select
+from sqlalchemy.exc import IntegrityError
 
 import config
+import db
 
 LOGIN_MAX_FAILURES = 5
 LOGIN_WINDOW_SECONDS = 15 * 60
@@ -68,26 +67,14 @@ def verify_password(password: str, stored: str) -> bool:
 # ---------------------------------------------------------------- user store
 
 
-@contextlib.contextmanager
-def _db():
-    """A connection that commits on success and is always closed."""
-    Path(config.AUTH_DB).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(config.AUTH_DB)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS users ("
-            " id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL,"
-            " password_hash TEXT NOT NULL, created_at INTEGER NOT NULL)"
-        )
-        with conn:
-            yield conn
-    finally:
-        conn.close()
+def _public(row) -> dict:
+    return {"id": str(row.id), "email": row.email, "name": row.name, "created_at": row.created_at}
 
 
-def _public(row: sqlite3.Row) -> dict:
-    return {"id": str(row["id"]), "email": row["email"], "name": row["name"], "created_at": row["created_at"]}
+def _find(**where):
+    (column, value), = where.items()
+    with db.engine().connect() as conn:
+        return conn.execute(select(db.users).where(getattr(db.users.c, column) == value)).first()
 
 
 def register(name: str, email: str, password: str) -> dict:
@@ -100,15 +87,18 @@ def register(name: str, email: str, password: str) -> dict:
         raise AuthError(422, f"Password must be at least {MIN_PASSWORD_LENGTH} characters.")
     if len(password) > 256:
         raise AuthError(422, "Password is too long.")
-    with _lock, _db() as conn:
-        if conn.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone():
-            raise AuthError(409, "An account with this email already exists. Sign in instead.")
-        cur = conn.execute(
-            "INSERT INTO users (email, name, password_hash, created_at) VALUES (?, ?, ?, ?)",
-            (email, name, hash_password(password), int(time.time() * 1000)),
-        )
-        row = conn.execute("SELECT * FROM users WHERE id = ?", (cur.lastrowid,)).fetchone()
-    return _public(row)
+    exists = AuthError(409, "An account with this email already exists. Sign in instead.")
+    if _find(email=email):
+        raise exists
+    try:
+        with db.engine().begin() as conn:
+            new_id = conn.execute(
+                insert(db.users).values(email=email, name=name, password_hash=hash_password(password),
+                                        created_at=int(time.time() * 1000)).returning(db.users.c.id)
+            ).scalar_one()
+    except IntegrityError:  # registered by a concurrent request a moment ago (unique email)
+        raise exists from None
+    return _public(_find(id=new_id))
 
 
 def login(email: str, password: str) -> dict:
@@ -119,10 +109,9 @@ def login(email: str, password: str) -> dict:
         _failures[email] = recent
     if len(recent) >= LOGIN_MAX_FAILURES:
         raise AuthError(429, "Too many failed sign-in attempts. Try again in 15 minutes.")
-    with _db() as conn:
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    row = _find(email=email)
     # Same message whether the email or the password is wrong, so emails cannot be probed.
-    if row is None or not verify_password(password, row["password_hash"]):
+    if row is None or not verify_password(password, row.password_hash):
         with _lock:
             _failures.setdefault(email, []).append(now)
         raise AuthError(401, "Incorrect email or password.")
@@ -132,8 +121,10 @@ def login(email: str, password: str) -> dict:
 
 
 def get_user(user_id: str) -> dict | None:
-    with _db() as conn:
-        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    try:
+        row = _find(id=int(user_id))
+    except ValueError:
+        return None
     return _public(row) if row else None
 
 

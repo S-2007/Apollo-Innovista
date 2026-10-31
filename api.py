@@ -24,8 +24,9 @@ Every endpoint except /api/auth/* needs a session: a JWT in the HttpOnly `apollo
 login/register) or an `Authorization: Bearer <jwt>` header. Runs belong to the user who started them;
 runs saved before accounts existed have no owner and are visible to every signed-in user.
 
-Finished runs are saved to output/runs/<id>/run.json (events, final state, usage meter)
-and reloaded at startup, so history, analytics and reports survive a server restart.
+Finished runs are saved as rows in the database (db.py: Neon Postgres via DATABASE_URL, or local SQLite) with
+their events, final state and usage meter, and reloaded at startup, so history, analytics and reports survive a
+restart or a redeploy. Run files from older versions (output/runs/*/run.json, output/users.db) are imported once.
 
 Each run lives in an in-memory registry guarded by one lock: its event list,
 status, pending interrupt, and a queue the graph thread waits on for the
@@ -45,10 +46,12 @@ Run locally:  uvicorn api:app --port 8000
 
 import asyncio
 import json
+import logging
 import os
 import queue
 import re
 import shutil
+import sqlite3
 import subprocess
 import threading
 import time
@@ -58,16 +61,18 @@ from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from langgraph.types import Command
 from pydantic import BaseModel, Field
+from sqlalchemy import delete, insert, select, update
 
 import auth
 import config
+import db
 import live
 import metering
 from events import EventConverter, make_event, warning_event
-from export import write_report
+from export import render_markdown, write_report
 from graph import nodes
 from graph.state import initial_state
 from graph.workflow import build_graph
@@ -174,35 +179,100 @@ def _review_health(state: dict | None, events: list[dict]) -> dict:
 # ---------------------------------------------------------------- persistence
 
 
-def _save(run: Run) -> None:
-    """Write a finished run to output/runs/<id>/run.json. A failed write never fails the run."""
+log = logging.getLogger("apollo")
+
+
+def _clean(value):
+    """Postgres JSON cannot hold NUL characters, which some scraped pages contain."""
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, list):
+        return [_clean(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _clean(v) for k, v in value.items()}
+    return value
+
+
+def _row(run: Run) -> dict:
     with _lock:
         doc = {
-            "id": run.id, "owner": run.owner, "topic": run.topic, "max_rounds": run.max_rounds, "hitl": run.hitl,
-            "status": run.status, "created_at": run.created_at, "finished_at": run.finished_at,
             # Drafts only matter while a section is being written; the final text is in section_written.
             "events": [e for e in run.events if e["type"] != "section_draft"],
-            "state": run.state, "calls": metering.calls(run.id),
+            "state": run.state,
+            "calls": metering.calls(run.id),
         }
+        return {"id": run.id, "owner": run.owner, "topic": run.topic, "status": run.status, "max_rounds": run.max_rounds,
+                "hitl": run.hitl, "created_at": run.created_at, "finished_at": run.finished_at, "doc": _clean(doc)}
+
+
+def _upsert(conn, row: dict) -> None:
+    if conn.execute(update(db.runs).where(db.runs.c.id == row["id"]).values(**row)).rowcount == 0:
+        conn.execute(insert(db.runs).values(**row))
+
+
+def _save(run: Run) -> None:
+    """Store a finished run in the database. A failed write is logged; it never fails the run."""
     try:
-        run.out_dir.mkdir(parents=True, exist_ok=True)
-        (run.out_dir / "run.json").write_text(json.dumps(doc), encoding="utf-8")
-    except (OSError, TypeError, ValueError):
-        pass
+        row = _row(run)
+        with db.engine().begin() as conn:
+            _upsert(conn, row)
+    except Exception as exc:
+        log.warning("could not save run %s: %s: %s", run.id, type(exc).__name__, str(exc)[:200])
+
+
+def _import_legacy() -> None:
+    """One-time import of the file stores used before the database: output/users.db (accounts, with
+    their password hashes) and output/runs/*/run.json. Rows already in the database are left alone."""
+    owner_map: dict[str, str] = {}
+    legacy_users = Path(config.LEGACY_USERS_DB)
+    if legacy_users.exists():
+        try:
+            src = sqlite3.connect(legacy_users)
+            old = src.execute("SELECT id, email, name, password_hash, created_at FROM users").fetchall()
+            src.close()
+        except sqlite3.Error:
+            old = []
+        with db.engine().begin() as conn:
+            for old_id, email, name, pw_hash, created in old:
+                found = conn.execute(select(db.users.c.id).where(db.users.c.email == email)).scalar()
+                if found is None:
+                    found = conn.execute(insert(db.users).values(email=email, name=name, password_hash=pw_hash,
+                                                                 created_at=created).returning(db.users.c.id)).scalar_one()
+                owner_map[str(old_id)] = str(found)
+    if not RUNS_DIR.exists():
+        return
+    with db.engine().begin() as conn:
+        have = set(conn.execute(select(db.runs.c.id)).scalars())
+        for path in RUNS_DIR.glob("*/run.json"):
+            try:
+                d = json.loads(path.read_text(encoding="utf-8"))
+                if d["id"] in have:
+                    continue
+                owner = d.get("owner")
+                conn.execute(insert(db.runs).values(
+                    id=d["id"], owner=owner_map.get(str(owner), owner) if owner else None, topic=d["topic"],
+                    status=d.get("status", "failed"), max_rounds=d["max_rounds"], hitl=bool(d["hitl"]),
+                    created_at=d.get("created_at", 0), finished_at=d.get("finished_at"),
+                    doc=_clean({"events": d.get("events", []), "state": d.get("state"), "calls": d.get("calls", [])}),
+                ))
+            except (OSError, ValueError, KeyError, TypeError):
+                continue  # a damaged file is skipped, not fatal
 
 
 def _load_saved() -> None:
-    """Reload finished runs saved by earlier server processes."""
-    if not RUNS_DIR.exists():
+    """Load finished runs from the database (after importing any older file stores)."""
+    try:
+        _import_legacy()
+        with db.engine().connect() as conn:
+            rows = conn.execute(select(db.runs)).all()
+    except Exception as exc:  # e.g. the database is unreachable: start anyway, with no history
+        log.warning("could not load saved runs: %s: %s", type(exc).__name__, str(exc)[:200])
         return
-    for path in RUNS_DIR.glob("*/run.json"):
-        try:
-            doc = json.loads(path.read_text(encoding="utf-8"))
-            run = Run(doc["topic"], doc["max_rounds"], doc["hitl"], run_id=doc["id"], owner=doc.get("owner"))
-        except (OSError, ValueError, KeyError, TypeError):
-            continue  # a damaged file is skipped, not fatal
-        run.status, run.events, run.state = doc.get("status", "failed"), doc.get("events", []), doc.get("state")
-        run.created_at, run.finished_at = doc.get("created_at", 0), doc.get("finished_at")
+    for r in rows:
+        run = Run(r.topic, r.max_rounds, r.hitl, run_id=r.id, owner=r.owner)
+        doc = r.doc or {}
+        run.status, run.events, run.state = r.status, doc.get("events", []), doc.get("state")
+        run.created_at, run.finished_at = r.created_at, r.finished_at
         if run.status in ACTIVE:  # saved mid-run by an older server: it can never finish now
             run.status = "failed"
         metering.load(run.id, doc.get("calls", []))
@@ -521,11 +591,15 @@ def _citation_check(state: dict) -> dict:
 
 
 @app.get("/api/runs/{run_id}/report.md")
-def download_report(run_id: str, user: User) -> FileResponse:
-    path = _get(run_id, user).out_dir / "report.md"
-    if not path.exists():
+def download_report(run_id: str, user: User) -> Response:
+    run = _get(run_id, user)
+    with _lock:
+        state = run.state
+    if state is None:
         raise HTTPException(409, "the report is not ready yet")
-    return FileResponse(path, media_type="text/markdown", filename=f"apollo-report-{run_id[:8]}.md")
+    # Rendered from the stored state, so it works after a redeploy with no local files.
+    return Response(render_markdown(state), media_type="text/markdown",
+                    headers={"Content-Disposition": f'attachment; filename="apollo-report-{run_id[:8]}.md"'})
 
 
 @app.get("/api/runs/{run_id}/contradictions")
@@ -708,6 +782,7 @@ def system(user: User) -> dict:
             "env_tracked_by_git": None if tracked_env is None else bool(tracked_env.strip()),
             "cors_origins": VITE_ORIGINS,
             "demo_switch": DEMO_FAIL_SUBQUESTION,
+            "database": db.kind(),  # "postgres" or "sqlite"; the URL (with its password) is never sent
         },
         "secret_scan": _secret_scan(),
     }
@@ -749,6 +824,9 @@ def clear_cache(user: User) -> dict:
             del _runs[rid]
             metering.forget(rid)
     removed = 0
+    if done:
+        with db.engine().begin() as conn:
+            conn.execute(delete(db.runs).where(db.runs.c.id.in_(done)))
     for rid in done:
         d = RUNS_DIR / rid
         if d.is_dir():

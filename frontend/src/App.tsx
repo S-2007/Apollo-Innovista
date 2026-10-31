@@ -54,28 +54,11 @@ function Icon({ d }: { d: string }) {
   )
 }
 
-function StatusLine({ label, value, state }: { label: string; value: string; state: 'ok' | 'warn' | 'bad' | 'unknown' }) {
-  const dot = { ok: 'bg-ok', warn: 'bg-warn', bad: 'bg-err', unknown: 'bg-muted/40' }[state]
-  return (
-    <div className="flex items-start gap-2 py-1.5">
-      <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 ${dot}`} aria-hidden="true" />
-      <div className="min-w-0">
-        <p className="label">{label}</p>
-        <p className="truncate text-xs text-ink" title={value}>{value}</p>
-      </div>
-    </div>
-  )
-}
-
 function Sidebar({ page, onNavigate }: { page: PageKey; onNavigate: () => void }) {
-  const { runs, backendOk, system } = useStore()
+  const { runs } = useStore()
   const { user, signOut } = useAuth()
   const initials = user.name.split(/\s+/).map((w) => w[0] ?? '').join('').slice(0, 2).toUpperCase() || '?'
   const live = runs.filter((r) => r.status === 'running' || r.status === 'awaiting_input').length
-  const provider = system?.llm.provider
-  const model = provider === 'groq' ? system?.llm.groq_model : system?.llm.gemini_model
-  const keyName = provider === 'groq' ? 'GROQ_API_KEY' : 'GEMINI_API_KEY'
-  const coreOk = system ? system.keys[keyName] && (system.keys.TAVILY_API_KEY || system.keys.SERPER_API_KEY) : null
 
   return (
     <nav aria-label="System navigation" className="flex h-full flex-col bg-surface">
@@ -106,14 +89,9 @@ function Sidebar({ page, onNavigate }: { page: PageKey; onNavigate: () => void }
         })}
       </ul>
       <div className="border-t border-line px-5 py-3">
-        <StatusLine label="System status" value={backendOk === null ? 'Connecting…' : backendOk ? `Backend online · ${live} live run${live === 1 ? '' : 's'}` : 'Backend unreachable'} state={backendOk === null ? 'unknown' : backendOk ? 'ok' : 'bad'} />
-        <StatusLine label="AI core" value={system ? `${provider} · ${model}` : 'Unknown'} state={coreOk === null ? 'unknown' : coreOk ? 'ok' : 'warn'} />
-        <div className="mt-2 flex items-center gap-2.5 border-t border-hair pt-3">
+        <div className="flex items-center gap-2.5">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center bg-ink font-mono text-[11px] text-white" aria-hidden="true">{initials}</span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium text-ink">{user.name}</p>
-            <p className="truncate text-[11px] text-muted" title={user.email}>{user.email}</p>
-          </div>
+          <p className="min-w-0 flex-1 truncate text-xs font-medium text-ink" title={user.email}>{user.name}</p>
           <button onClick={() => void signOut()} className="shrink-0 font-mono text-[11px] text-accent-ink hover:underline">Sign out</button>
         </div>
       </div>

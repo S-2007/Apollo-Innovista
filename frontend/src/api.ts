@@ -216,6 +216,7 @@ export interface SystemInfo {
     env_tracked_by_git: boolean | null
     cors_origins: string[]
     demo_switch: number
+    database?: 'postgres' | 'sqlite'
   }
   secret_scan: { ran: boolean; files: number; findings: { file: string; line: number; kind: string; match: string }[] }
 }

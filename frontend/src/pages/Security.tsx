@@ -88,6 +88,7 @@ export default function Security() {
             <div><dt className="label inline">LLM provider </dt><dd className="inline font-mono">{info.llm.provider}</dd></div>
             <div><dt className="label inline">Verifier chain </dt><dd className="inline font-mono">{info.llm.verify_chain.join(' → ')}</dd></div>
             <div><dt className="label inline">CORS origins </dt><dd className="inline font-mono">{c.cors_origins.join(', ')}</dd></div>
+            <div><dt className="label inline">Database </dt><dd className="inline font-mono">{c.database === 'postgres' ? 'Postgres (DATABASE_URL)' : 'local SQLite (set DATABASE_URL for Neon)'}</dd></div>
           </dl>
         </Panel>
       </div>

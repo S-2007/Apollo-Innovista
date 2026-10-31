@@ -452,3 +452,23 @@ passes. In the browser: unauthenticated `/api/runs` → 401; short-password erro
 sign-in screen; wrong password → generic error; sign in; reload keeps the session; the map iframe loads with the
 cookie; `document.cookie` is empty (token not readable by scripts). The test account was deleted afterwards.
 **Not done:** email verification, password reset, account deletion UI, admin roles.
+
+## Phase 3.7: database (Neon Postgres or local SQLite); simpler sidebar footer (2026-10-31)
+
+**Asked:** add a database for deploying on Neon; remove the sidebar's system status / backend lines and the line
+under the user's name.
+**Database (`db.py`, SQLAlchemy 2.0.36 Core + psycopg 3.2.3):** `DATABASE_URL` (Neon `postgresql://…?sslmode=require`;
+the scheme is pointed at psycopg 3) or, when empty, `output/apollo.db` (SQLite). Tables `users` and `runs` are created
+on first use; `runs.doc` (JSONB on Postgres) holds events, final state and usage calls. NUL characters are stripped
+before saving (Postgres JSON rejects them). Pooled Postgres connections are pre-pinged and recycled every 5 min (Neon
+closes idle connections). `auth.py` and api.py persistence now use the database; `report.md` is rendered from the stored
+state, and the contradiction map was already rebuilt from it, so a redeploy loses nothing. At startup the older
+`output/users.db` and `output/runs/*/run.json` are imported once (password hashes kept; run owners remapped to the new
+user ids). The Security page shows the database type (never the URL).
+**Sidebar:** removed "System status" and "AI core"; the footer shows initials, the user's name (email on hover) and
+Sign out.
+**Checks:** `pytest` 91 passed (6 new in `tests/test_database.py`: Neon URL handling, round trip without drafts or NUL,
+report download with no local files, one-time idempotent import with the old password still valid); `npm run build`
+passes. Local start imported 1 account and 10 runs into `output/apollo.db`; the dashboard lists them after sign-in.
+**Not verified:** a live Neon database (no `DATABASE_URL` was provided); the Postgres path is covered by SQLAlchemy and
+the URL test only.
