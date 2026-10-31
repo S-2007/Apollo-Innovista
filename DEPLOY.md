@@ -170,7 +170,7 @@ docker run -d --name apollo --restart unless-stopped --env-file .env -p 127.0.0.
 | Build fails installing `torch==2.15.0` | In `Dockerfile` change it to plain `torch` |
 | Container exits | `docker logs apollo`; usually a missing or quoted value in `.env` |
 | Sign-in does not stick | Use the `https://` address; `COOKIE_SECURE=true` needs HTTPS |
-| Security page says "local SQLite" | `DATABASE_URL` missing from the server's `.env`; data would be lost on rebuild |
+| `/api/system` (signed in) shows `"database": "sqlite"` | `DATABASE_URL` missing from the server's `.env`; data would be lost on rebuild |
 
 ## What the repo provides for this
 

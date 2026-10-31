@@ -215,7 +215,7 @@ export default function LiveReport() {
             <Panel label="Next" title="Explore this run">
               <div className="flex flex-wrap gap-2">
                 <button className={btn.secondary} onClick={() => go('claims')}>Claims & evidence</button>
-                <button className={btn.secondary} onClick={() => go('gaps')}>What it couldn't verify</button>
+                <button className={btn.secondary} onClick={() => go('verification')}>Verification</button>
                 <button className={btn.secondary} onClick={() => go('reports')}>Export report</button>
               </div>
             </Panel>

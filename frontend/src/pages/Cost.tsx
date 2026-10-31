@@ -23,8 +23,8 @@ export default function Cost() {
       return 60000
     }
   })
-  if (!runId) return <><PageHeader kicker="11 · Cost & execution" title="Cost & execution" /><Panel><Empty>Start a run to see what it costs.</Empty></Panel></>
-  if (!metrics) return <><PageHeader kicker="11 · Cost & execution" title="Cost & execution" /><Panel><Empty>Loading usage…</Empty></Panel></>
+  if (!runId) return <><PageHeader kicker="08 · Cost & execution" title="Cost & execution" /><Panel><Empty>Start a run to see what it costs.</Empty></Panel></>
+  if (!metrics) return <><PageHeader kicker="08 · Cost & execution" title="Cost & execution" /><Panel><Empty>Loading usage…</Empty></Panel></>
 
   const s = metrics.summary
   const used = s.prompt_tokens + s.completion_tokens
@@ -58,7 +58,7 @@ export default function Cost() {
 
   return (
     <div>
-      <PageHeader kicker="11 · Cost & execution" title="Cost & execution" />
+      <PageHeader kicker="08 · Cost & execution" title="Cost & execution" />
       <div className="grid grid-cols-2 gap-px border border-line bg-line md:grid-cols-3 xl:grid-cols-6 [&>*]:border-0">
         <Stat label="Actual time" value={fmtMs(metrics.wall_ms)} sub={estimate ? `est. ${fmtMs(estimate)} (avg of ${peers.length})` : 'no estimate yet'} />
         <Stat label="LLM calls" value={s.llm_calls} sub={s.llm_failed ? `${s.llm_failed} failed / retried` : 'none failed'} tone={s.llm_failed ? 'warn' : 'normal'} />

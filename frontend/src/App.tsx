@@ -1,4 +1,4 @@
-// APOLLO application shell: left sidebar (brand, 13 hash-routed sections, system / AI core /
+// APOLLO application shell: left sidebar (brand, 10 hash-routed sections, system / AI core /
 // user status) and a compact top bar (section, date, run selector, Live report button, mobile
 // menu). All run data comes from the store (store.tsx).
 
@@ -11,20 +11,17 @@ import Dashboard from './pages/Dashboard'
 import NewResearch from './pages/NewResearch'
 import Analytics from './pages/Analytics'
 import Agents from './pages/Agents'
-import Planning from './pages/Planning'
 import Claims from './pages/Claims'
 import Contradictions from './pages/Contradictions'
 import Sources from './pages/Sources'
-import Gaps from './pages/Gaps'
-import Security from './pages/Security'
 import Cost from './pages/Cost'
 import Verification from './pages/Verification'
 import Reports from './pages/Reports'
 import LiveReport from './pages/LiveReport'
 
 const VIEW: Record<PageKey, () => JSX.Element> = {
-  dashboard: Dashboard, new: NewResearch, analytics: Analytics, agents: Agents, planning: Planning,
-  claims: Claims, contradictions: Contradictions, sources: Sources, gaps: Gaps, security: Security,
+  dashboard: Dashboard, new: NewResearch, analytics: Analytics, agents: Agents,
+  claims: Claims, contradictions: Contradictions, sources: Sources,
   cost: Cost, verification: Verification, reports: Reports, live: LiveReport,
 }
 
@@ -34,12 +31,9 @@ const ICON: Record<PageKey, string> = {
   new: 'M8 3v10M3 8h10',
   analytics: 'M2 14h12M4 12V8M8 12V4M12 12V6',
   agents: 'M8 2.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM3 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM13 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM7.2 5.3 3.8 10.7M8.8 5.3l3.4 5.4M4.5 12h7',
-  planning: 'M3 3h10M3 6.5h10M3 10h6M3 13.5h4',
   claims: 'M3 8.5 6 11.5 13 4.5',
   contradictions: 'M3 4h7l-2-2M13 12H6l2 2',
   sources: 'M2 8h12M8 2c2 2 2.5 4 2.5 6S10 12 8 14M8 2C6 4 5.5 6 5.5 8S6 12 8 14M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2z',
-  gaps: 'M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2zM8 5v3.5M8 11v.01',
-  security: 'M8 2 3 4v4c0 3 2.2 5.2 5 6 2.8-.8 5-3 5-6V4z',
   cost: 'M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2zM8 4.5V8l2.5 1.5',
   verification: 'M8 2 3 4v4c0 3 2.2 5.2 5 6 2.8-.8 5-3 5-6V4zM5.8 8.2l1.6 1.6 3-3',
   reports: 'M4 2h6l3 3v9H4zM10 2v3h3M6 8h5M6 10.5h5',

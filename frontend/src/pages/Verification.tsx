@@ -11,7 +11,7 @@ const KEYS = ['verified', 'partial', 'not_found', 'unchecked'] as const
 
 export default function Verification() {
   const { report, busy, metrics, system } = useStore()
-  if (!report) return <><PageHeader kicker="12 · Verification" title="Verification" /><NeedsRun what="Verification" busy={busy} /></>
+  if (!report) return <><PageHeader kicker="09 · Verification" title="Verification" /><NeedsRun what="Verification" busy={busy} /></>
 
   const counts = Object.fromEntries(KEYS.map((k) => [k, report.verification.filter((c) => c.status === k).length])) as Record<(typeof KEYS)[number], number>
   const total = report.verification.length
@@ -45,7 +45,7 @@ export default function Verification() {
 
   return (
     <div>
-      <PageHeader kicker="12 · Verification" title="Verification" />
+      <PageHeader kicker="09 · Verification" title="Verification" />
       <div className="grid grid-cols-2 gap-px border border-line bg-line md:grid-cols-5 [&>*]:border-0">
         <Stat label="Quality score" value={`${passed}/${checks.length}`} sub="checklist below" tone={passed === checks.length ? 'good' : passed >= checks.length / 2 ? 'warn' : 'bad'} />
         <Stat label="Verified" value={pct(counts.verified, total)} sub={`${counts.verified} of ${total} claims`} tone="good" />

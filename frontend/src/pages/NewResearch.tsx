@@ -29,7 +29,7 @@ export default function NewResearch() {
                 <p className="text-sm text-ink" role="status">The report for this session is ready.</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button onClick={() => go('reports')} className={btn.primary}>Open the report</button>
-                  <button onClick={() => go('gaps')} className={btn.secondary}>What Apollo couldn't verify</button>
+                  <button onClick={() => go('verification')} className={btn.secondary}>Verification</button>
                 </div>
               </Panel>
             )}

@@ -616,3 +616,13 @@ was dominated by LLM waits: Groq's daily quota was spent and Gemini returned 503
 first only when configured and drops menu lines; onnx embeds shortest first and returns the caller's order).
 **Not verified on Render (Linux).** Its Events tab would show "Ran out of memory" if a restart is still memory; a
 redeploy during a run (e.g. auto-deploy after a push) also interrupts it.
+
+## Phase 3.17: three hard-to-read pages removed (2026-10-31)
+
+**Asked:** remove Research Planning, Research Gaps and Security (too much information, hard to understand).
+**Removed:** `pages/Planning.tsx`, `pages/Gaps.tsx`, `pages/Security.tsx`, their routes and sidebar icons. The sidebar
+has 10 pages, renumbered 01–10. Old links (`#/planning`, `#/gaps`, `#/security`) open the Dashboard. The buttons that
+opened Gaps (Dashboard, Live Report, New Research) now open Verification. Nothing else is lost: plan and follow-up
+approval stay on Live Report and New Research; `/api/system` stays (the Cost page uses it).
+**Checks:** `tsc` and `vite build` clean; in the browser (throwaway local database) the sidebar lists the 10 pages and
+`#/security` falls back to the Dashboard.

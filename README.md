@@ -83,7 +83,7 @@ START → Apollo plans → (you approve/edit) → Athena searches → Hermes rev
 | `tools/` | search, page extraction, passage selection, retry policy, text helpers |
 | `verify/`, `viz/`, `export.py` | claim verification, contradiction map, Markdown export |
 | `api.py`, `events.py`, `metering.py` | FastAPI backend, event conversion, per-run usage meter (LLM calls, tokens, searches) |
-| `frontend/` | "Mission Control" UI: React 18 + Vite + TypeScript (strict) + Tailwind 4; sidebar with 13 pages (`src/pages/`) |
+| `frontend/` | "Mission Control" UI: React 18 + Vite + TypeScript (strict) + Tailwind 4; sidebar with 10 pages (`src/pages/`) |
 | `demo/topics.md`, `DEMO.md` | demo topics and the 2-minute demo script |
 | `PHASE_LOG.md` | what was built and verified in each phase, with known gaps |
 
