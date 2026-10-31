@@ -626,3 +626,43 @@ opened Gaps (Dashboard, Live Report, New Research) now open Verification. Nothin
 approval stay on Live Report and New Research; `/api/system` stays (the Cost page uses it).
 **Checks:** `tsc` and `vite build` clean; in the browser (throwaway local database) the sidebar lists the 10 pages and
 `#/security` falls back to the Dashboard.
+
+## Phase 3.18: Evidence Explorer and part-by-part claim verification (2026-10-31)
+
+**Asked:** make claim-level evidence traceable: from a report statement to the exact passage, how strongly it
+supports the claim, what is missing, and the original source. A new page (Claims & Evidence stays), a
+`contradicted` status, source type + relevance instead of an authority score, and an accuracy check.
+**Found before building:** the verifier stopped at the first source that said "yes", kept one sentence per claim,
+never checked that the LLM's quote existed, could not say "contradicted", and called a claim "partial" when a
+similar sentence merely existed (similarity >= 0.5). Source text was already stored per run, so no schema change.
+**Verifier (`verify/claims.py`):** passages per cited source = the 5 most similar sentences plus, per clause of the
+claim, the sentence sharing most of its words (`clause_matches`). One LLM call per claim over all its sources splits
+the claim into parts, each with a verdict (supported / partial / contradicted / unsupported), the deciding passage
+and an exact quote. Code keeps a verdict only if the quote is in that source (`quote_in`: case, spacing, curly quotes
+and "..." gaps ignored); otherwise the part becomes unsupported with a note. Status from parts: any contradicted ->
+contradicted; all supported -> verified; some backed -> partial; else not_found. No usable LLM answer -> unchecked
+(it used to fall back to a similarity guess). Passages keep neighbouring sentences, position and nearest heading.
+`CLAIM_STATUSES` (tools/text.py) is shared by the API, events, export, CLI and run list; `VERIFY_PARTIAL_SIM` removed.
+**API:** `GET /api/runs/{id}/evidence` (claims with parts and passages, sources, Hermes' contradictions; `legacy`
+for runs verified before this). **Frontend:** page 06 "Evidence Explorer" (claims -> evidence with per-part verdicts,
+highlighted quotes and context, a tab per cited source -> source panel with original URL, a text-fragment link that
+opens the page at the passage, heading/position, relevance, rule-based source type, sub-question, extraction
+method). `contradicted` added to every status list, pill, bar and filter. Later pages renumbered 07-11.
+**Accuracy check (`scripts/eval_verifier.py`, data in output/eval, not committed):** 32 claims sampled from 8 saved
+runs; 3 excluded (not factual: "The sections below summarise...", "Not found in sources."). Labelled by Claude from
+the cited sources before either verifier ran (one annotator, not a domain expert). 8 synthetic claims: real claims
+with a wrong number or an added unsupported clause. Same model for both (Gemini flash-lite-latest; Groq's daily
+quota was spent), one run each.
+- Old verifier: 33/37 correct; "verified" for 1 of 10 claims not fully backed; 2 of 26 backed claims not verified;
+  wrong-number claims came out "partial" (it cannot say contradicted).
+- New verifier, first version: 33/37; 0 of 10 wrongly verified; 7 of 26 backed claims not verified (it judged
+  "The sections below summarise" as a fact, and the 5 most similar sentences missed later facts of long claims).
+- After the prompt rule and clause passages: 36/37; 0 of 10 wrongly verified; 2 of 26 backed claims not verified;
+  all 6 wrong-number claims "contradicted". Tuned on the same 37 claims, so this is optimistic; a fresh labelled set
+  is needed for an unbiased number.
+**Checks:** `pytest` 110 passed (new: part verdicts, invented quotes rejected, contradictions, unusable answers
+unchecked, clause passages, evidence endpoint and legacy flag). `tsc` and `vite build` clean. In the browser (local
+SQLite copy of a saved run, re-verified): claims list and filters, part verdicts with quotes, passages with
+headings, source panel; phone width without horizontal scroll, selecting a claim scrolls to its evidence.
+**Not done / limits:** saved runs keep the old verification (shown as legacy) until re-run. No page numbers (web text).
+Source type is a domain heuristic, not credibility. LLM verdicts still vary run to run (one run each above).

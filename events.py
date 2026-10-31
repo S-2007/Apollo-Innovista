@@ -18,7 +18,7 @@ sends only these events. Each is {"type", "data", "ts"}; ts is epoch millisecond
   section_written  {section, index, citations, not_found, write_failed, text}   text = final section   write_failed = every LLM failed;
                                                      the section is NOT claimed to be "not found"
   report_written   {markdown}                  full report text, before claim verification
-  verification     {verified, partial, not_found, unchecked}   claim counts
+  verification     {verified, partial, contradicted, not_found, unchecked}   claim counts
   contradictions   {count, reviews, reviews_failed}   reviews = Hermes reviews run; contradictions
                                                      are only looked for in reviews that succeeded
   report_ready     {}
@@ -33,7 +33,7 @@ how many it has already reported and only turns the new items into events.
 
 import time
 
-from tools.text import NOT_FOUND, WRITE_FAILED, find_citations
+from tools.text import CLAIM_STATUSES, NOT_FOUND, WRITE_FAILED, find_citations
 
 NODE_VERB = {
     "apollo_plan": "planning",
@@ -162,7 +162,7 @@ class EventConverter:
         return [make_event("report_written", {"markdown": u["report"]})] if u.get("report") else []
 
     def _verify_claims(self, u: dict) -> list[dict]:
-        counts = {k: 0 for k in ("verified", "partial", "not_found", "unchecked")}
+        counts = {k: 0 for k in CLAIM_STATUSES}
         for c in u.get("claims", []):
             counts[c["status"]] = counts.get(c["status"], 0) + 1
         return [make_event("verification", counts)]

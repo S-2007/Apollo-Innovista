@@ -15,7 +15,7 @@ from sqlalchemy import select
 from tools import passages as passages_mod
 from verify import claims as claims_mod
 
-from .fakes import fake_embed, fake_llm, fake_search
+from .fakes import fake_embed, fake_llm, fake_search, verify_reply
 
 PW = "correct horse"
 
@@ -30,7 +30,7 @@ def isolated(monkeypatch, tmp_path):
     monkeypatch.setattr(nodes, "llm_chat", fake_llm(lambda n: '{"complete": true, "gaps": []}'))
     monkeypatch.setattr(passages_mod, "embed", fake_embed)
     monkeypatch.setattr(claims_mod, "embed", fake_embed)
-    monkeypatch.setattr(claims_mod, "llm_chat", lambda *a, **k: '{"supported": true, "evidence": "x"}')
+    monkeypatch.setattr(claims_mod, "llm_chat", lambda system, user, **k: verify_reply(user))
     monkeypatch.setattr(claims_mod, "_available_chain", lambda: [("groq", "m")])
     auth._failures.clear()
     api._runs.clear()

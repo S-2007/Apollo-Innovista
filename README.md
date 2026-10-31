@@ -68,8 +68,11 @@ START → Apollo plans → (you approve/edit) → Athena searches → Hermes rev
   wall-clock limit (`TIMEOUT_SECONDS`, default 180 s) is reached, or when there are no new gap queries.
 - **Writers see only their own section's sources.** Code removes citations to ids a writer was not given, and drops
   any sentence that cites nothing. A section without support reads "Not found in sources."
-- **Verification:** for each cited sentence, the best-matching sentences of the cited source's retrieved text are
-  found with embeddings, then an LLM answers yes/no. Result: verified / partial / not_found / unchecked.
+- **Verification:** for each cited sentence, the best-matching passages of every cited source's retrieved text are
+  found with embeddings; one LLM call splits the claim into parts and judges each part on those passages with an
+  exact quote. Code checks each quote is really in the source, so an invented quote cannot verify anything.
+  Result: verified / partial / contradicted / not_found / unchecked. The **Evidence Explorer** page shows each
+  claim's parts, the passages (quotes highlighted, with context and position) and the source.
 - **Failures never crash a run.** A failed search, an unreadable page or a rate limit becomes an amber warning in
   the UI, and the run continues.
 - The web API (`api.py`) runs the graph in a background thread and streams typed events (`events.py`) over
@@ -83,7 +86,7 @@ START → Apollo plans → (you approve/edit) → Athena searches → Hermes rev
 | `tools/` | search, page extraction, passage selection, retry policy, text helpers |
 | `verify/`, `viz/`, `export.py` | claim verification, contradiction map, Markdown export |
 | `api.py`, `events.py`, `metering.py` | FastAPI backend, event conversion, per-run usage meter (LLM calls, tokens, searches) |
-| `frontend/` | "Mission Control" UI: React 18 + Vite + TypeScript (strict) + Tailwind 4; sidebar with 10 pages (`src/pages/`) |
+| `frontend/` | "Mission Control" UI: React 18 + Vite + TypeScript (strict) + Tailwind 4; sidebar with 11 pages (`src/pages/`) |
 | `demo/topics.md`, `DEMO.md` | demo topics and the 2-minute demo script |
 | `PHASE_LOG.md` | what was built and verified in each phase, with known gaps |
 

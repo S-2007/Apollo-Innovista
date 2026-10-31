@@ -3,27 +3,27 @@
 // filters and platform comparisons need data the backend does not have, so they say so.
 
 import { useState, type ReactNode } from 'react'
-import type { RunSummary } from '../api'
+import type { ClaimStatus, RunSummary } from '../api'
 import { useStore } from '../store'
 import {
-  BarChart, Empty, Legend, Meter, PageHeader, Panel, Segmented, StackedBar, STATUS_COLOR, Stat, STOP_REASON,
+  BarChart, Empty, Legend, Meter, PageHeader, Panel, Segmented, StackedBar, CLAIM_KEYS, STATUS_COLOR, Stat, STOP_REASON,
   Unavailable, bucketize, btn, download, field, fmtInt, fmtMs, fmtTime, pct,
 } from '../ui'
 
-const KEYS = ['verified', 'partial', 'not_found', 'unchecked'] as const
+const KEYS = CLAIM_KEYS
 type Range = '7d' | '30d' | '90d' | 'all'
 type Unit = 'day' | 'week' | 'month'
 const RANGE_DAYS: Record<Range, number> = { '7d': 7, '30d': 30, '90d': 90, all: Infinity }
 const BUCKETS: Record<Unit, number> = { day: 14, week: 12, month: 6 }
 
 const dur = (r: RunSummary) => (r.finished_at ?? r.created_at) - r.created_at
-const total = (r: RunSummary) => KEYS.reduce((a, k) => a + r.claims[k], 0)
+const total = (r: RunSummary) => KEYS.reduce((a, k) => a + (r.claims[k] ?? 0), 0)
 
 function toCsv(rows: RunSummary[]): string {
   const head = ['run_id', 'topic', 'status', 'started', 'duration_s', 'rounds', 'sources', ...KEYS, 'contradictions', 'llm_calls', 'prompt_tokens', 'completion_tokens', 'searches', 'searches_failed', 'stop_reason']
   const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
   return [head.join(','), ...rows.map((r) => [
-    r.run_id, r.topic, r.status, new Date(r.created_at).toISOString(), Math.round(dur(r) / 1000), r.rounds, r.sources, ...KEYS.map((k) => r.claims[k]),
+    r.run_id, r.topic, r.status, new Date(r.created_at).toISOString(), Math.round(dur(r) / 1000), r.rounds, r.sources, ...KEYS.map((k) => (r.claims[k] ?? 0)),
     r.contradictions, r.usage.llm_calls, r.usage.prompt_tokens, r.usage.completion_tokens, r.usage.searches, r.usage.searches_failed, r.stop_reason,
   ].map(esc).join(','))].join('\n')
 }
@@ -37,7 +37,7 @@ export default function Analytics() {
   const done = inRange.filter((r) => r.finished_at)
 
   const sum = (xs: RunSummary[], f: (r: RunSummary) => number) => xs.reduce((a, r) => a + f(r), 0)
-  const claims = Object.fromEntries(KEYS.map((k) => [k, sum(done, (r) => r.claims[k])])) as Record<(typeof KEYS)[number], number>
+  const claims = Object.fromEntries(KEYS.map((k) => [k, sum(done, (r) => (r.claims[k] ?? 0))])) as Record<ClaimStatus, number>
   const claimTotal = KEYS.reduce((a, k) => a + claims[k], 0)
   const searches = sum(done, (r) => r.usage.searches)
   const searchFails = sum(done, (r) => r.usage.searches_failed)
@@ -121,7 +121,7 @@ export default function Analytics() {
                           <td><button onClick={() => select(r.run_id)} className="block max-w-[260px] truncate text-left text-ink hover:text-accent-ink hover:underline" title={r.topic}>{r.topic}</button><span className="font-mono text-[10.5px] text-muted">{fmtTime(r.created_at)}</span></td>
                           <td><Cell text={fmtMs(dur(r))}><Meter value={dur(r)} max={Math.max(...trend.map(dur))} /></Cell></td>
                           <td><Cell text={String(r.sources)}><Meter value={r.sources} max={Math.max(...trend.map((x) => x.sources))} color="bg-ok" /></Cell></td>
-                          <td>{r.has_report ? <Cell text={`${r.claims.verified}/${total(r)}`}><StackedBar height="h-1.5" parts={KEYS.map((k) => ({ value: r.claims[k], color: STATUS_COLOR[k], label: k }))} /></Cell> : <span className="text-xs text-muted">no report</span>}</td>
+                          <td>{r.has_report ? <Cell text={`${r.claims.verified}/${total(r)}`}><StackedBar height="h-1.5" parts={KEYS.map((k) => ({ value: (r.claims[k] ?? 0), color: STATUS_COLOR[k], label: k }))} /></Cell> : <span className="text-xs text-muted">no report</span>}</td>
                           <td><Cell text={fmtInt(tok)}><Meter value={tok} max={Math.max(...trend.map((x) => x.usage.prompt_tokens + x.usage.completion_tokens))} color="bg-ink/60" /></Cell></td>
                           <td className="font-mono text-xs">{r.usage.searches}{r.usage.searches_failed ? <span className="text-warn-ink"> · {r.usage.searches_failed} failed</span> : ''}</td>
                         </tr>

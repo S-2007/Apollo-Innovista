@@ -10,6 +10,7 @@ export const PAGES = [
   { key: 'analytics', label: 'Analytics' },
   { key: 'agents', label: 'Agent Orchestration' },
   { key: 'claims', label: 'Claims & Evidence' },
+  { key: 'evidence', label: 'Evidence Explorer' },
   { key: 'contradictions', label: 'Contradictions' },
   { key: 'sources', label: 'Source Intelligence' },
   { key: 'cost', label: 'Cost & Execution' },

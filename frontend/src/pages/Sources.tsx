@@ -5,12 +5,12 @@
 // content, circular citations) are listed as unavailable rather than estimated.
 
 import { useState } from 'react'
-import type { ClaimStatus, Source } from '../api'
+import type { Source } from '../api'
 import { CATEGORIES, classifyErrors, sourceCategory, type SourceCategory } from '../insights'
 import { useStore } from '../store'
-import { Empty, NeedsRun, PageHeader, Panel, Pill, Segmented, StackedBar, STATUS_COLOR, Stat, Unavailable, field, hostOf, pct } from '../ui'
+import { Empty, NeedsRun, PageHeader, Panel, Pill, Segmented, StackedBar, CLAIM_KEYS, STATUS_COLOR, Stat, Unavailable, field, hostOf, pct } from '../ui'
 
-const KEYS: ClaimStatus[] = ['verified', 'partial', 'not_found', 'unchecked']
+const KEYS = CLAIM_KEYS
 type Sort = 'id' | 'claims' | 'domain'
 
 export default function Sources() {
@@ -18,7 +18,7 @@ export default function Sources() {
   const [cat, setCat] = useState<SourceCategory | 'all'>('all')
   const [sort, setSort] = useState<Sort>('id')
   const [q, setQ] = useState('')
-  if (!report) return <><PageHeader kicker="07 · Source intelligence" title="Source analysis" /><NeedsRun what="Source intelligence" busy={busy} /></>
+  if (!report) return <><PageHeader kicker="08 · Source intelligence" title="Source analysis" /><NeedsRun what="Source intelligence" busy={busy} /></>
 
   const sources = report.sources
   const fullText = sources.filter((s) => s.extracted_by && s.extracted_by !== 'snippet only').length
@@ -42,7 +42,7 @@ export default function Sources() {
 
   return (
     <div>
-      <PageHeader kicker="07 · Source intelligence" title="Source analysis" />
+      <PageHeader kicker="08 · Source intelligence" title="Source analysis" />
       <div className="grid grid-cols-2 gap-px border border-line bg-line md:grid-cols-4 [&>*]:border-0">
         <Stat label="Sources" value={sources.length} tone="accent" />
         <Stat label="Independent domains" value={domains.size} sub={`${sameDomain.length} domain${sameDomain.length === 1 ? '' : 's'} used more than once`} />

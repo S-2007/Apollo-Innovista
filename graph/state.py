@@ -46,13 +46,35 @@ class Reference(TypedDict):
     url: str
 
 
+class ClaimPart(TypedDict):
+    text: str             # one factual part of the claim
+    verdict: Literal["supported", "partial", "contradicted", "unsupported"]
+    passage: str          # deciding passage label, e.g. "S3.2" ("" when unsupported)
+    source_id: str
+    quote: str            # exact words from that passage (checked to be in the source text)
+    note: str             # why a verdict was lowered by the code, e.g. a quote not in the source
+
+
+class Passage(TypedDict):
+    label: str            # "S3.2": second passage taken from source S3
+    source_id: str
+    text: str             # the source sentence
+    before: str           # neighbouring sentences, for the reader
+    after: str
+    similarity: float     # embedding similarity to the claim (0-1)
+    position: float | None  # where it starts in the source text (0 = start, 1 = end)
+    heading: str          # nearest heading above it in the source text, if any
+
+
 class ClaimCheck(TypedDict):
     claim: str
     source_ids: list[str]
-    status: Literal["verified", "partial", "not_found", "unchecked"]
-    best_match: str       # best-matching sentence from the retrieved source text
+    status: Literal["verified", "partial", "contradicted", "not_found", "unchecked"]
+    best_match: str       # best-matching (or deciding) sentence from the retrieved source text
     similarity: float
-    evidence: str         # the LLM's quoted evidence
+    evidence: str         # quote of the first supported part
+    parts: list[ClaimPart]       # absent in runs verified before Phase 3.18
+    passages: list[Passage]
 
 
 class ResearchState(TypedDict):

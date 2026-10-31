@@ -2,19 +2,20 @@
 // selected run's live summary, platform statistics, recent sessions and activity over time.
 
 import { useState } from 'react'
+import type { ClaimStatus } from '../api'
 import AgentStrip from '../components/AgentStrip'
 import TopicForm from '../components/TopicForm'
 import { go } from '../router'
 import { useStore } from '../store'
-import { BarChart, Empty, Legend, PageHeader, Panel, Pill, StackedBar, STATUS_COLOR, Stat, bucketize, btn, fmtInt, fmtTime, pct } from '../ui'
+import { BarChart, Empty, Legend, PageHeader, Panel, Pill, StackedBar, CLAIM_KEYS, STATUS_COLOR, Stat, bucketize, btn, fmtInt, fmtTime, pct } from '../ui'
 
-const KEYS = ['verified', 'partial', 'not_found', 'unchecked'] as const
+const KEYS = CLAIM_KEYS
 
 export default function Dashboard() {
   const { runs, d, maxRounds, selected, select, runId, busy, start, events } = useStore()
   const [topic, setTopic] = useState('')
 
-  const claims = Object.fromEntries(KEYS.map((k) => [k, runs.reduce((a, r) => a + r.claims[k], 0)])) as Record<(typeof KEYS)[number], number>
+  const claims = Object.fromEntries(KEYS.map((k) => [k, runs.reduce((a, r) => a + (r.claims[k] ?? 0), 0)])) as Record<ClaimStatus, number>
   const totalClaims = KEYS.reduce((a, k) => a + claims[k], 0)
   const sources = runs.reduce((a, r) => a + r.sources, 0)
   const tokens = runs.reduce((a, r) => a + r.usage.prompt_tokens + r.usage.completion_tokens, 0)
@@ -22,7 +23,7 @@ export default function Dashboard() {
   // Live summary of the selected run, from its events.
   const searched = events.filter((e) => e.type === 'search_done' || e.type === 'search_failed').length
   const written = events.filter((e) => e.type === 'section_written').length
-  const selTotal = selected ? KEYS.reduce((a, k) => a + selected.claims[k], 0) : 0
+  const selTotal = selected ? KEYS.reduce((a, k) => a + (selected.claims[k] ?? 0), 0) : 0
 
   return (
     <div>
@@ -64,7 +65,7 @@ export default function Dashboard() {
                   </thead>
                   <tbody>
                     {runs.slice(0, 8).map((r) => {
-                      const total = KEYS.reduce((a, k) => a + r.claims[k], 0)
+                      const total = KEYS.reduce((a, k) => a + (r.claims[k] ?? 0), 0)
                       return (
                         <tr key={r.run_id} className={`border-b border-hair [&>td]:px-4 [&>td]:py-2.5 ${r.run_id === runId ? 'bg-accent/5' : ''}`}>
                           <td><button onClick={() => select(r.run_id)} className="block max-w-[320px] truncate text-left text-ink hover:text-accent-ink hover:underline" title={r.topic}>{r.topic}</button></td>
@@ -104,8 +105,8 @@ export default function Dashboard() {
                 <AgentStrip d={d} maxRounds={maxRounds} />
                 {selected.has_report && (
                   <div>
-                    <StackedBar parts={KEYS.map((k) => ({ value: selected.claims[k], color: STATUS_COLOR[k], label: k }))} />
-                    <Legend items={KEYS.map((k) => ({ color: STATUS_COLOR[k], label: k.replace('_', ' '), value: selected.claims[k] }))} />
+                    <StackedBar parts={KEYS.map((k) => ({ value: (selected.claims[k] ?? 0), color: STATUS_COLOR[k], label: k }))} />
+                    <Legend items={KEYS.map((k) => ({ color: STATUS_COLOR[k], label: k.replace('_', ' '), value: (selected.claims[k] ?? 0) }))} />
                   </div>
                 )}
                 <div className="flex flex-wrap gap-2">

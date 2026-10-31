@@ -15,6 +15,8 @@ _LEFTOVER = re.compile(r"\[[^\]]*\bS\d+\b[^\]]*\]")  # e.g. "[S1-S3]" or "[sourc
 _SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
 _LEADING_CITES = re.compile(r"^((?:\[S\d+\]\s*)+)(.*)$", re.DOTALL)
 NOT_FOUND = "not found in sources"
+# Claim verification statuses (verify/claims.py), in display order.
+CLAIM_STATUSES = ("verified", "partial", "contradicted", "not_found", "unchecked")
 # A section the LLM could not write (every model failed). Deliberately NOT the NOT_FOUND phrase:
 # the sources may well answer the question; the report must not claim they do not.
 WRITE_FAILED = "Section not written: the language model was unavailable, so the retrieved sources for this sub-question were not summarised."
@@ -51,7 +53,8 @@ def find_citations(text: str) -> list[str]:
 
 
 def strip_citations(text: str) -> str:
-    return re.sub(r"\s+", " ", CITE.sub("", text)).strip()
+    # "focus and output [S2], with" -> "focus and output, with" (no space left before punctuation)
+    return re.sub(r"\s+([,.;:!?])", r"\1", re.sub(r"\s+", " ", CITE.sub("", text))).strip()
 
 
 def split_sentences(text: str) -> list[str]:

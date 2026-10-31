@@ -35,7 +35,7 @@ export interface EventDataMap {
   section_written: { section?: string; index?: number; citations?: number; not_found?: boolean; write_failed?: boolean; text?: string }
   report_written: { markdown?: string }
   claim_checked: { done?: number; total?: number; status?: string }
-  verification: { verified?: number; partial?: number; not_found?: number; unchecked?: number }
+  verification: { verified?: number; partial?: number; contradicted?: number; not_found?: number; unchecked?: number }
   contradictions: { count?: number; reviews?: number; reviews_failed?: number }
   report_ready: Record<string, never>
   warning: { message?: string; details?: string[] }
@@ -81,7 +81,7 @@ export const toMs = (ts: number) => (ts < 1e12 ? ts * 1000 : ts)
 
 // ------------------------------------------------------------------ REST types
 
-export type ClaimStatus = 'verified' | 'partial' | 'not_found' | 'unchecked'
+export type ClaimStatus = 'verified' | 'partial' | 'contradicted' | 'not_found' | 'unchecked'
 
 export interface Source {
   id: string
@@ -102,6 +102,50 @@ export interface Claim {
   evidence?: string
   source_ids?: string[]
   similarity?: number // cosine similarity of the claim to its best-matching source sentence (0-1)
+}
+
+// ---- Evidence Explorer (/api/runs/{id}/evidence): each claim split into parts, judged on numbered passages
+
+export type PartVerdict = 'supported' | 'partial' | 'contradicted' | 'unsupported'
+
+export interface ClaimPart {
+  text: string
+  verdict: PartVerdict
+  passage: string // deciding passage label, e.g. "S3.2" ("" when unsupported)
+  source_id: string
+  quote: string // exact words from that passage, checked by the backend to be in the source text
+  note: string // why the backend lowered the verifier's verdict, if it did
+}
+
+export interface Passage {
+  label: string // "S3.2": second passage taken from source S3
+  source_id: string
+  text: string
+  before: string // neighbouring sentences in the source text
+  after: string
+  similarity: number // embedding similarity to the claim, 0-1 (not a probability)
+  position: number | null // where it starts in the extracted text, 0 = start
+  heading: string // nearest heading above it in the extracted text
+}
+
+export interface EvidenceClaim {
+  n: number
+  claim: string // as written in the report, with [S#] citations
+  text: string // without citations
+  status: ClaimStatus
+  source_ids: string[]
+  similarity: number
+  best_match: string
+  evidence: string
+  parts: ClaimPart[]
+  passages: Passage[]
+}
+
+export interface Evidence {
+  legacy: boolean // verified before claims had parts and passages: only best_match is known
+  claims: EvidenceClaim[]
+  sources: Source[]
+  contradictions: Contradiction[]
 }
 
 export interface Contradiction {
@@ -287,6 +331,7 @@ export const resumeRun = (runId: string, action: ResumeAction, payload?: { sub_q
   request<{ ok: boolean }>(`/api/runs/${runId}/resume`, post(payload ? { action, payload } : { action }))
 
 export const getReport = (runId: string) => request<Report>(`/api/runs/${runId}/report`)
+export const getEvidence = (runId: string) => request<Evidence>(`/api/runs/${runId}/evidence`)
 
 export const listRuns = () => request<RunSummary[]>('/api/runs')
 export const getRunStatus = (runId: string) => request<{ status: string; events: number }>(`/api/runs/${runId}`)

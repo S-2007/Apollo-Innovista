@@ -3,17 +3,18 @@
 // source accessibility, evidence completeness per section, which verifier models ran, and a
 // research-quality score that is an explicit checklist (shown with its formula).
 
+import type { ClaimStatus } from '../api'
 import { classifyErrors, conflictCheck } from '../insights'
 import { useStore } from '../store'
-import { Legend, NeedsRun, PageHeader, Panel, Pill, StackedBar, STATUS_COLOR, Stat, Unavailable, pct } from '../ui'
+import { Legend, NeedsRun, PageHeader, Panel, Pill, StackedBar, CLAIM_KEYS, STATUS_COLOR, Stat, Unavailable, pct } from '../ui'
 
-const KEYS = ['verified', 'partial', 'not_found', 'unchecked'] as const
+const KEYS = CLAIM_KEYS
 
 export default function Verification() {
   const { report, busy, metrics, system } = useStore()
-  if (!report) return <><PageHeader kicker="09 · Verification" title="Verification" /><NeedsRun what="Verification" busy={busy} /></>
+  if (!report) return <><PageHeader kicker="10 · Verification" title="Verification" /><NeedsRun what="Verification" busy={busy} /></>
 
-  const counts = Object.fromEntries(KEYS.map((k) => [k, report.verification.filter((c) => c.status === k).length])) as Record<(typeof KEYS)[number], number>
+  const counts = Object.fromEntries(KEYS.map((k) => [k, report.verification.filter((c) => c.status === k).length])) as Record<ClaimStatus, number>
   const total = report.verification.length
   const cc = report.citation_check
   const sections = report.sections ?? []
@@ -45,7 +46,7 @@ export default function Verification() {
 
   return (
     <div>
-      <PageHeader kicker="09 · Verification" title="Verification" />
+      <PageHeader kicker="10 · Verification" title="Verification" />
       <div className="grid grid-cols-2 gap-px border border-line bg-line md:grid-cols-5 [&>*]:border-0">
         <Stat label="Quality score" value={`${passed}/${checks.length}`} sub="checklist below" tone={passed === checks.length ? 'good' : passed >= checks.length / 2 ? 'warn' : 'bad'} />
         <Stat label="Verified" value={pct(counts.verified, total)} sub={`${counts.verified} of ${total} claims`} tone="good" />

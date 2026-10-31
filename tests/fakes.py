@@ -39,6 +39,17 @@ def default_assembler(user: str) -> str:
     return json.dumps({"intro": f"Sources describe the topic [{first}].", "conclusion": "The sections above summarise the evidence."})
 
 
+def verify_reply(user: str, verdict: str = "supported", label: str | None = None) -> str:
+    """The verifier's answer: the whole claim is one part, judged on a passage it was shown.
+
+    The quote is the first words of that passage, so it passes the code's quote check."""
+    passages = dict(re.findall(r"^\[(S\d+\.\d+)\] (.+)$", user, flags=re.M))
+    label = label or next(iter(passages), "")
+    claim = user.split("\n", 1)[0].removeprefix("Claim: ")
+    quote = " ".join(passages.get(label, "").split()[:5]) if verdict != "unsupported" else ""
+    return json.dumps({"parts": [{"text": claim, "verdict": verdict, "passage": label if quote else "", "quote": quote}]})
+
+
 def fake_llm(review_reply, writer=default_writer, assembler=default_assembler, verifier=None, plan=PLAN):
     """`review_reply(call_no)` returns Hermes' raw text for its n-th call."""
     calls = {"review": 0}
@@ -58,7 +69,7 @@ def fake_llm(review_reply, writer=default_writer, assembler=default_assembler, v
         if system == nodes.ASSEMBLE_SYSTEM:
             return assembler(user)
         if system == claims_mod.VERIFY_SYSTEM:
-            return verifier(user) if verifier else '{"supported": true, "evidence": "x"}'
+            return verifier(user) if verifier else verify_reply(user)
         raise AssertionError(f"unexpected system prompt: {system[:60]}")
 
     return _chat

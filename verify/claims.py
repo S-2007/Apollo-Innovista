@@ -2,20 +2,27 @@
 
 verify_report(report, findings, errors) -> list[ClaimCheck]
 
-For every report sentence that carries a citation:
-1. For each cited source, split its retrieved text (page content, else snippet)
-   into sentences and embed them with sentence-transformers all-MiniLM-L6-v2.
-   The sentence with the highest cosine similarity to the claim is the best match.
-2. Ask the LLM a yes/no question about the VERIFY_TOP_K best-matching
-   sentences (in source order; a claim can combine facts from two places):
-   {"supported": bool, "evidence": "..."}.
-3. Status:
-   - verified : the LLM says at least one cited source's text supports the claim
-   - partial  : no "yes", but some cited source has a closely related sentence
-                (similarity >= VERIFY_PARTIAL_SIM): related, not fully backed
-   - not_found: neither (or the source has no retrieved text)
-   - unchecked: over the VERIFY_MAX_CLAIMS cap, or every model's daily quota is
-                spent (counted and reported, never hidden)
+For every report sentence that carries a citation (a "claim"):
+1. Passages: for each cited source, its retrieved text (page content, else snippet) is split
+   into sentences; the VERIFY_TOP_K sentences most similar to the claim (all-MiniLM-L6-v2
+   embeddings) become numbered passages "S3.1", "S3.2", ... Each passage keeps its neighbouring
+   sentences, its position in the source text and the nearest heading above it, so a reader can
+   find it in the source.
+2. One LLM call per claim, with the passages of ALL its cited sources: the claim is split into
+   its factual parts, and each part gets a verdict (supported / partial / contradicted /
+   unsupported), the passage that decides it and an exact quote from that passage.
+3. The code checks every quote: it must appear in the passage (or elsewhere in that source's
+   text). A part whose quote is not there, or that names an unknown passage, counts as
+   unsupported, so an invented quote can never verify a claim.
+4. Claim status, from its parts:
+   - verified    : every part is supported
+   - contradicted: a passage states the opposite of some part
+   - partial     : some parts are (partly) supported, others are not; the unsupported parts are named
+   - not_found   : no part is supported, or the cited sources have no retrieved text
+   - unchecked   : over the VERIFY_MAX_CLAIMS cap, or no model could be asked (quota spent, errors)
+
+Claims verified before this format (saved runs) have no parts or passages; the API marks
+them `legacy`.
 
 Models: config.VERIFY_CHAIN, e.g. Groq gpt-oss-20b -> Groq gpt-oss-120b -> Gemini
 (each has its own quota; providers without an API key are skipped). When a model's
@@ -27,6 +34,7 @@ as a live `claim_checked` progress event. Results keep the report's claim order.
 """
 
 import contextvars
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -36,14 +44,35 @@ from llm import chat as llm_chat
 from tools.embed import embed
 from tools.jsonparse import parse_json
 from tools.retry_policy import is_quota_exhausted
-from tools.text import find_citations, split_sentences, strip_citations, top_by_keywords
+from tools.text import (  # noqa: F401  (CLAIM_STATUSES is re-exported for callers)
+    CLAIM_STATUSES,
+    find_citations,
+    keyword_scores,
+    split_sentences,
+    strip_citations,
+    top_by_keywords,
+)
+
+VERDICTS = ("supported", "partial", "contradicted", "unsupported")
 
 VERIFY_SYSTEM = (
-    "You check whether a source text supports a claim. Judge ONLY from the source text given; "
-    "do not use outside knowledge. If the text states the claim (or a clear paraphrase), supported=true. "
-    "If it only discusses the topic, contradicts it, or gives different numbers, supported=false. "
-    'Answer JSON only: {"supported": true|false, "evidence": "<short quote from the source text, or empty>"}'
+    "You check a claim against numbered source passages. Judge ONLY from the passages given; do not use "
+    "outside knowledge.\n"
+    "1. Split the claim into its separate factual parts (1 to 4 short parts; a simple claim is one part). "
+    "Together the parts must cover everything the claim states. Wording that only refers to the report "
+    "itself (such as \"The sections below summarise\") is not a factual part: leave it out.\n"
+    "2. Give each part a verdict:\n"
+    "   supported: a passage states it, or clearly paraphrases it, including its numbers, dates and qualifiers\n"
+    "   partial: a passage backs it only in part (weaker or narrower wording, a different number range)\n"
+    "   contradicted: a passage states the opposite, or a different number for the same quantity\n"
+    "   unsupported: no passage states it (a passage that only discusses the topic is not enough)\n"
+    "3. For supported, partial and contradicted parts, name the deciding passage (e.g. \"S3.2\") and copy "
+    "the exact words from that passage that justify the verdict. For unsupported parts leave both empty.\n"
+    'Answer JSON only: {"parts": [{"text": "...", "verdict": "supported|partial|contradicted|unsupported", '
+    '"passage": "S3.2", "quote": "..."}]}'
 )
+
+PASSAGE_CONTEXT = 1  # neighbouring sentences kept on each side of a passage (for the reader, not the LLM)
 
 
 def _available_chain() -> list[tuple[str, str]]:
@@ -105,53 +134,163 @@ def verify_report(report: str, findings: list[dict], errors: list[str]) -> list[
     for claim in claims[config.VERIFY_MAX_CLAIMS :]:
         ids = [i for i in find_citations(claim) if i in by_id]
         results.append({"claim": claim, "source_ids": ids, "status": "unchecked", "best_match": "",
-                        "similarity": 0.0, "evidence": ""})
+                        "similarity": 0.0, "evidence": "", "parts": [], "passages": []})
     return results
 
 
 def _check_claim(claim: str, by_id: dict, models: list[tuple[str, str]], errors: list[str], candidates) -> dict:
     ids = [i for i in find_citations(claim) if i in by_id]
-    result = {"claim": claim, "source_ids": ids, "status": "not_found", "best_match": "", "similarity": 0.0, "evidence": ""}
+    result = {"claim": claim, "source_ids": ids, "status": "not_found", "best_match": "", "similarity": 0.0,
+              "evidence": "", "parts": [], "passages": []}
     try:
         claim_vec = embed([strip_citations(claim)])[0]
     except Exception as exc:
         errors.append(f"verify: embedding failed: {type(exc).__name__}: {str(exc)[:200]}")
+        result["status"] = "unchecked"
         return result
 
-    supported = False
+    passages = []
     for sid in ids:
         sents = candidates(claim, sid)
         if not sents:
             continue
-        vecs = embed(sents)
-        sims = vecs @ claim_vec
-        best = int(sims.argmax())
-        if float(sims[best]) > result["similarity"]:
-            result["similarity"], result["best_match"] = round(float(sims[best]), 3), sents[best]
-        if not models:  # every model's quota is spent: stop calling the LLM
-            continue
-        top = sorted(sims.argsort()[::-1][: config.VERIFY_TOP_K].tolist())  # keep source order
-        window = " ... ".join(sents[i] for i in top)
-        raw = _ask(f"Claim: {strip_citations(claim)}\n\nSource text ({sid}): {window}", models, errors, sid)
-        if raw is None:
-            continue
-        obj = parse_json(raw)
-        if obj is None or not isinstance(obj.get("supported"), bool):
-            errors.append(f"verify: invalid JSON for {sid}: {raw[:120]!r}")
-            continue
-        if obj["supported"]:
-            supported = True
-            result["evidence"] = str(obj.get("evidence", ""))[:300]
-            result["best_match"] = sents[best]
-            break
-
-    if supported:
-        result["status"] = "verified"
-    elif not models:
+        sims = embed(sents) @ claim_vec
+        chosen = {sents[i]: float(sims[i]) for i in sims.argsort()[::-1][: config.VERIFY_TOP_K].tolist()}
+        # A claim listing several facts is most similar to sentences about its main fact; the sentence
+        # stating a later fact ("theoretical effects on cell growth") is found by its own words instead.
+        extra = [s for s in clause_matches(_source_sentences(by_id[sid]), strip_citations(claim)) if s not in chosen]
+        if extra:
+            chosen.update(zip(extra, (embed(extra) @ claim_vec).tolist()))
+        order = {s: i for i, s in enumerate(_source_sentences(by_id[sid]))}
+        for n, s in enumerate(sorted(chosen, key=lambda s: order.get(s, 0)), 1):  # keep source order
+            passages.append(_passage(by_id[sid], sid, n, s, chosen[s]))
+    result["passages"] = passages
+    if not passages:
+        return result  # nothing retrieved to check against: not_found
+    best = max(passages, key=lambda p: p["similarity"])
+    result["similarity"], result["best_match"] = best["similarity"], best["text"]
+    if not models:
         result["status"] = "unchecked"  # never mark a claim checked when the LLM could not be asked
-    elif result["similarity"] >= config.VERIFY_PARTIAL_SIM:
-        result["status"] = "partial"
+        return result
+
+    listing = "\n".join(f"[{p['label']}] {p['text']}" for p in passages)
+    raw = _ask(f"Claim: {strip_citations(claim)}\n\nPassages:\n{listing}", models, errors, ",".join(ids))
+    obj = parse_json(raw) if raw is not None else None
+    parts = obj.get("parts") if isinstance(obj, dict) else None
+    if not isinstance(parts, list) or not parts:
+        if raw is not None:
+            errors.append(f"verify: invalid JSON for claim {strip_citations(claim)[:60]!r}: {raw[:120]!r}")
+        result["status"] = "unchecked"  # the verifier gave no usable answer: not a verdict on the claim
+        return result
+
+    by_label = {p["label"]: p for p in passages}
+    result["parts"] = [_checked_part(part, by_label, by_id) for part in parts[:6] if isinstance(part, dict)]
+    result["status"] = claim_status(result["parts"])
+    decisive = next((pt for pt in result["parts"] if pt["verdict"] == "supported"), None)
+    if decisive:
+        result["evidence"], result["best_match"] = decisive["quote"], by_label[decisive["passage"]]["text"]
     return result
+
+
+_CLAUSE = re.compile(r"[,;]|\b(?:and|alongside|with|while|including)\b", re.I)
+
+
+def clause_matches(sentences: list[str], claim: str, limit: int = 4) -> list[str]:
+    """For each clause of the claim, the source sentence sharing the most of its words (at least 2)."""
+    picked: list[str] = []
+    for clause in _CLAUSE.split(claim):
+        scores = keyword_scores(sentences, clause)
+        if not scores:
+            continue
+        best = max(range(len(sentences)), key=lambda i: (scores[i], -i))
+        if scores[best] >= 2 and sentences[best] not in picked:
+            picked.append(sentences[best])
+    return picked[:limit]
+
+
+def claim_status(parts: list[dict]) -> str:
+    verdicts = [p["verdict"] for p in parts]
+    if not verdicts:
+        return "unchecked"
+    if "contradicted" in verdicts:
+        return "contradicted"
+    if all(v == "supported" for v in verdicts):
+        return "verified"
+    if any(v in ("supported", "partial") for v in verdicts):
+        return "partial"
+    return "not_found"
+
+
+def _checked_part(part: dict, by_label: dict, by_id: dict) -> dict:
+    """One part of a claim as the LLM judged it, kept only as far as the source text bears it out."""
+    out = {"text": str(part.get("text", ""))[:300], "verdict": str(part.get("verdict", "")).strip().lower(),
+           "passage": str(part.get("passage", "")).strip().strip("[]"), "source_id": "",
+           "quote": str(part.get("quote", "")).strip()[:400], "note": ""}
+    if out["verdict"] not in VERDICTS:
+        out.update(verdict="unsupported", note=f"the verifier gave no valid verdict ({out['verdict'][:20]!r})")
+    if out["verdict"] == "unsupported":
+        out.update(passage="", quote="")
+        return out
+    passage = by_label.get(out["passage"])
+    if passage is None:
+        out.update(verdict="unsupported", note=f"the verifier named an unknown passage ({out['passage'][:12]!r})",
+                   passage="", quote="")
+        return out
+    out["source_id"] = passage["source_id"]
+    finding = by_id[passage["source_id"]]
+    source_text = finding.get("content") or finding.get("snippet") or ""
+    if not out["quote"] or not (quote_in(out["quote"], passage["text"]) or quote_in(out["quote"], source_text)):
+        out.update(verdict="unsupported", note=f"the quoted words are not in {passage['source_id']}'s text")
+    return out
+
+
+def _norm(text: str) -> str:
+    text = text.lower().replace("\u2019", "'").replace("\u2018", "'").replace("\u201c", '"').replace("\u201d", '"')
+    return re.sub(r"\s+", " ", re.sub(r"[^\w%.,;:'\"()-]+", " ", text)).strip()
+
+
+def quote_in(quote: str, text: str) -> bool:
+    """True if every piece of `quote` (split at "..." ellipses) appears in `text`, in order.
+
+    Case, spacing, curly quotes and other punctuation do not matter; the words must."""
+    hay, pos = _norm(text), 0
+    pieces = [_norm(p).strip(" .,;:'\"") for p in re.split(r"\.\.\.|\u2026", quote)]
+    pieces = [p for p in pieces if p]
+    if not pieces:
+        return False
+    for piece in pieces:
+        found = hay.find(piece, pos)
+        if found < 0:
+            return False
+        pos = found + len(piece)
+    return True
+
+
+def _passage(finding: dict, sid: str, n: int, sentence: str, similarity: float) -> dict:
+    """A numbered passage with where it sits in the source text, for the reader to find it there."""
+    sents = _source_sentences(finding)
+    text = finding.get("content") or finding.get("snippet") or ""
+    i = sents.index(sentence) if sentence in sents else -1
+    start = text.find(sentence)
+    return {
+        "label": f"{sid}.{n}",
+        "source_id": sid,
+        "text": sentence,
+        "before": " ".join(sents[max(0, i - PASSAGE_CONTEXT) : i]) if i > 0 else "",
+        "after": " ".join(sents[i + 1 : i + 1 + PASSAGE_CONTEXT]) if i >= 0 else "",
+        "similarity": round(similarity, 3),
+        "position": round(start / len(text), 2) if start >= 0 and text else None,  # 0 = start of the text
+        "heading": _heading_above(text, start) if start >= 0 else "",
+    }
+
+
+def _heading_above(text: str, start: int) -> str:
+    """The nearest line above `start` that looks like a heading (short, not ending a sentence)."""
+    for line in reversed(text[:start].split("\n")[:-1]):
+        line = line.strip()
+        if 3 <= len(line) <= 90 and not line.endswith((".", ",", ";")):
+            return line
+    return ""
 
 
 _models_lock = threading.Lock()

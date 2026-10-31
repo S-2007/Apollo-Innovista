@@ -18,6 +18,7 @@ from pathlib import Path
 import config
 from export import write_report
 from graph.workflow import stream_research
+from tools.text import CLAIM_STATUSES
 from viz.contradictions import write_contradiction_map
 
 
@@ -81,7 +82,7 @@ def main() -> int:
     for f in final["findings"]:
         method = f["extracted_by"] or "snippet only"
         print(f"   [{f['id']}] s{f['section'] + 1} {f['title'][:60]} ({len(f['content'])} chars, {method})")
-    counts = {k: sum(c["status"] == k for c in final["claims"]) for k in ("verified", "partial", "not_found", "unchecked")}
+    counts = {k: sum(c["status"] == k for c in final["claims"]) for k in CLAIM_STATUSES}
     print(f"Claims:       {len(final['claims'])} cited sentences -> " + ", ".join(f"{k}={v}" for k, v in counts.items()))
     print(f"Conflicts:    {conflict_msg}")
     print(f"Report:       {report_path}")

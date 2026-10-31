@@ -1,5 +1,5 @@
 // ReportView: the report rendered with react-markdown. [S1] tokens become chips linking to the
-// source (hover: title, snippet, URL); paragraphs matching a partial / not_found claim get a left border.
+// source (hover: title, snippet, URL); paragraphs matching a partial / not_found / contradicted claim get a left border.
 
 import { Children, isValidElement, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
@@ -56,17 +56,19 @@ const norm = (s: string) => s.replace(/\[S\d+\]/g, '').replace(/\s+/g, ' ').trim
 const BORDER: Record<string, string> = {
   partial: 'border-l-2 border-warn pl-3',
   not_found: 'border-l-2 border-err pl-3',
+  contradicted: 'border-l-4 border-err-ink pl-3',
 }
 
 export default function ReportView({ report, runId, toolbar = true }: { report: Report; runId: string; toolbar?: boolean }) {
   const sources = new Map((report.sources ?? []).map((s) => [s.id, s]))
-  const flagged: Claim[] = (report.verification ?? []).filter((c) => c.status === 'partial' || c.status === 'not_found')
+  const flagged: Claim[] = (report.verification ?? []).filter((c) => c.status === 'partial' || c.status === 'not_found' || c.status === 'contradicted')
 
   // Best-effort: the worst flagged claim contained in the paragraph decides its border.
   const flagFor = (children: ReactNode): string => {
     const text = norm(textOf(children))
     if (!text) return ''
     const hits = flagged.filter((c) => c.claim && text.includes(norm(c.claim)))
+    if (hits.some((c) => c.status === 'contradicted')) return BORDER.contradicted ?? ''
     if (hits.some((c) => c.status === 'not_found')) return BORDER.not_found ?? ''
     return hits.length ? (BORDER.partial ?? '') : ''
   }

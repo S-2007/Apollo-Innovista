@@ -19,7 +19,7 @@ from graph import nodes
 from tools import passages as passages_mod
 from verify import claims as claims_mod
 
-from .fakes import PLAN, fake_embed, fake_llm, fake_search
+from .fakes import PLAN, fake_embed, fake_llm, fake_search, verify_reply
 
 COMPLETE = lambda n: '{"complete": true, "gaps": []}'
 GAPS = lambda n: json.dumps({"complete": False, "gaps": [{"section": 1, "query": f"gap query {n}"}]})
@@ -32,7 +32,7 @@ def offline(monkeypatch, tmp_path):
     monkeypatch.setattr(nodes, "llm_chat", fake_llm(COMPLETE))
     monkeypatch.setattr(passages_mod, "embed", fake_embed)
     monkeypatch.setattr(claims_mod, "embed", fake_embed)
-    monkeypatch.setattr(claims_mod, "llm_chat", lambda *a, **k: '{"supported": true, "evidence": "x"}')
+    monkeypatch.setattr(claims_mod, "llm_chat", lambda system, user, **k: verify_reply(user))
     monkeypatch.setattr(claims_mod, "_available_chain", lambda: [("groq", "m")])
     monkeypatch.setattr(api, "RUNS_DIR", tmp_path / "runs")
     monkeypatch.setattr(config, "DATABASE_URL", f"sqlite:///{tmp_path / 'apollo-test.db'}")
@@ -109,6 +109,24 @@ def test_run_streams_ordered_events_and_serves_report(client):
     md = client.get(f"/api/runs/{run_id}/report.md")
     assert md.status_code == 200 and "## References" in md.text
     assert "attachment" in md.headers["content-disposition"]
+
+    evidence = client.get(f"/api/runs/{run_id}/evidence").json()
+    assert evidence["legacy"] is False and len(evidence["claims"]) == len(report["verification"])
+    first = evidence["claims"][0]
+    assert first["n"] == 1 and "[S" not in first["text"] and first["status"] == "verified"
+    assert first["parts"][0]["verdict"] == "supported" and first["parts"][0]["passage"] in {p["label"] for p in first["passages"]}
+    assert {p["source_id"] for p in first["passages"]} <= {s["id"] for s in evidence["sources"]}
+
+
+def test_evidence_of_runs_verified_before_claim_parts_is_marked_legacy(client):
+    run_id = _start(client)
+    _sse_events(client, run_id)
+    with api._lock:
+        state = api._runs[run_id].state
+        for c in state["claims"]:
+            c.pop("parts"), c.pop("passages")
+    evidence = client.get(f"/api/runs/{run_id}/evidence").json()
+    assert evidence["legacy"] is True and evidence["claims"][0]["parts"] == []
 
 
 def test_failed_search_becomes_search_failed_event_and_run_completes(client, monkeypatch):

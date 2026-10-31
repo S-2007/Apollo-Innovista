@@ -42,6 +42,7 @@ from tools.passages import relevant_passages
 from tools.jsonparse import parse_json
 from tools.search import search as web_search
 from tools.text import (
+    CLAIM_STATUSES,
     NOT_FOUND,
     WRITE_FAILED,
     find_citations,
@@ -618,6 +619,6 @@ def assemble(state: ResearchState) -> dict:
 def verify_claims(state: ResearchState) -> dict:
     events, errors = list(state["events"]), list(state["errors"])
     claims = verify_report(state["report"], state["findings"], errors)
-    counts = {k: sum(c["status"] == k for c in claims) for k in ("verified", "partial", "not_found", "unchecked")}
+    counts = {k: sum(c["status"] == k for c in claims) for k in CLAIM_STATUSES}
     events.append(f"[Verify] {len(claims)} cited claims: " + ", ".join(f"{k}={v}" for k, v in counts.items()))
     return {"claims": claims, "events": events, "errors": errors}

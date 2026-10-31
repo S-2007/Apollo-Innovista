@@ -78,7 +78,7 @@ from graph import nodes
 from graph.state import initial_state
 from graph.workflow import build_graph
 from tools import embed, passages
-from tools.text import CITE, NOT_FOUND, WRITE_FAILED, find_citations
+from tools.text import CITE, CLAIM_STATUSES, NOT_FOUND, WRITE_FAILED, find_citations, strip_citations
 from viz.contradictions import write_contradiction_map
 
 VITE_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]  # the Vite dev server only
@@ -561,7 +561,7 @@ def _source_rows(state: dict) -> list[dict]:
             "question": state["plan"][f["section"]] if f["section"] < len(state["plan"]) else "",
             "extracted_by": f["extracted_by"] or "snippet only",
             "cited": f["id"] in set(find_citations(state["report"])),
-            "claims": {s: statuses.count(s) for s in ("verified", "partial", "not_found", "unchecked") if s in statuses},
+            "claims": {s: statuses.count(s) for s in CLAIM_STATUSES if s in statuses},
         })
     return rows
 
@@ -598,6 +598,31 @@ def get_report(run_id: str, user: User) -> dict:
         ],
         "citation_check": _citation_check(state),
         "review_health": _review_health(state, events),
+    }
+
+
+@app.get("/api/runs/{run_id}/evidence")
+def get_evidence(run_id: str, user: User) -> dict:
+    """Evidence Explorer: every claim with its parts, the passages it was checked against and their sources.
+
+    `legacy` runs were verified before claims had parts and passages: only the best-matching
+    sentence is known for them (and "partial" there meant "a similar sentence exists")."""
+    run = _get(run_id, user)
+    with _lock:
+        state = run.state
+    if state is None:
+        raise HTTPException(409, "the report is not ready yet")
+    claims = state["claims"]
+    return {
+        "legacy": bool(claims) and not any("parts" in c for c in claims),
+        "claims": [
+            {"n": n, "claim": c["claim"], "text": strip_citations(c["claim"]), "status": c["status"],
+             "source_ids": c["source_ids"], "similarity": round(c["similarity"], 3), "best_match": c["best_match"],
+             "evidence": c["evidence"], "parts": c.get("parts", []), "passages": c.get("passages", [])}
+            for n, c in enumerate(claims, 1)
+        ],
+        "sources": _source_rows(state),
+        "contradictions": state["contradictions"],  # Hermes' source-vs-source conflicts, for context
     }
 
 
@@ -643,7 +668,7 @@ def _summary(run: Run) -> dict:
     """One row of the run list: identity, timing and the headline counts."""
     with _lock:
         state, events, status = run.state, list(run.events), run.status
-    claims = {k: 0 for k in ("verified", "partial", "not_found", "unchecked")}
+    claims = {k: 0 for k in CLAIM_STATUSES}
     for c in (state or {}).get("claims", []):
         claims[c["status"]] = claims.get(c["status"], 0) + 1
     done = next((e["data"] for e in events if e["type"] == "complete"), {})

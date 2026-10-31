@@ -1,4 +1,4 @@
-// APOLLO application shell: left sidebar (brand, 10 hash-routed sections, system / AI core /
+// APOLLO application shell: left sidebar (brand, 11 hash-routed sections, system / AI core /
 // user status) and a compact top bar (section, date, run selector, Live report button, mobile
 // menu). All run data comes from the store (store.tsx).
 
@@ -12,6 +12,7 @@ import NewResearch from './pages/NewResearch'
 import Analytics from './pages/Analytics'
 import Agents from './pages/Agents'
 import Claims from './pages/Claims'
+import EvidenceExplorer from './pages/Evidence'
 import Contradictions from './pages/Contradictions'
 import Sources from './pages/Sources'
 import Cost from './pages/Cost'
@@ -21,7 +22,7 @@ import LiveReport from './pages/LiveReport'
 
 const VIEW: Record<PageKey, () => JSX.Element> = {
   dashboard: Dashboard, new: NewResearch, analytics: Analytics, agents: Agents,
-  claims: Claims, contradictions: Contradictions, sources: Sources,
+  claims: Claims, evidence: EvidenceExplorer, contradictions: Contradictions, sources: Sources,
   cost: Cost, verification: Verification, reports: Reports, live: LiveReport,
 }
 
@@ -32,6 +33,7 @@ const ICON: Record<PageKey, string> = {
   analytics: 'M2 14h12M4 12V8M8 12V4M12 12V6',
   agents: 'M8 2.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM3 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM13 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM7.2 5.3 3.8 10.7M8.8 5.3l3.4 5.4M4.5 12h7',
   claims: 'M3 8.5 6 11.5 13 4.5',
+  evidence: 'M7 2.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM10.3 10.3 14 14M5 7h4M7 5v4',
   contradictions: 'M3 4h7l-2-2M13 12H6l2 2',
   sources: 'M2 8h12M8 2c2 2 2.5 4 2.5 6S10 12 8 14M8 2C6 4 5.5 6 5.5 8S6 12 8 14M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2z',
   cost: 'M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2zM8 4.5V8l2.5 1.5',

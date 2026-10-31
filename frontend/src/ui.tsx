@@ -60,9 +60,13 @@ export function Stat({ label, value, sub, tone = 'normal' }: { label: string; va
 
 // ------------------------------------------------------------------ status
 
+/** Claim statuses in display order (verify/claims.py). */
+export const CLAIM_KEYS: ClaimStatus[] = ['verified', 'partial', 'contradicted', 'not_found', 'unchecked']
+
 export const STATUS_COLOR: Record<ClaimStatus, string> = {
   verified: 'bg-ok',
   partial: 'bg-warn',
+  contradicted: 'bg-err-ink',
   not_found: 'bg-err',
   unchecked: 'bg-muted/40',
 }
@@ -74,6 +78,7 @@ const PILL: Record<string, string> = {
   partial: 'border-warn/70 bg-warn/15 text-warn-ink',
   warn: 'border-warn/70 bg-warn/15 text-warn-ink',
   not_found: 'border-err/50 bg-err/10 text-err-ink',
+  contradicted: 'border-err-ink bg-err-ink text-white',
   failed: 'border-err/50 bg-err/10 text-err-ink',
   running: 'border-accent bg-accent/10 text-accent-ink',
   working: 'border-accent bg-accent/10 text-accent-ink',

@@ -7,10 +7,10 @@ import type { Claim, Source } from '../api'
 import { useStore } from '../store'
 import { Empty, NeedsRun, PageHeader, Panel, Pill, Segmented, Unavailable, field, fmtDate, hostOf } from '../ui'
 
-const FILTERS = ['all', 'verified', 'partial', 'not_found', 'unchecked'] as const
+const FILTERS = ['all', 'verified', 'partial', 'contradicted', 'not_found', 'unchecked'] as const
 type Filter = (typeof FILTERS)[number]
 type Sort = 'report' | 'confidence' | 'status'
-const RANK = { not_found: 0, unchecked: 1, partial: 2, verified: 3 } as const
+const RANK = { contradicted: 0, not_found: 1, unchecked: 2, partial: 3, verified: 4 } as const
 
 export default function Claims() {
   const { report, busy, selected } = useStore()
@@ -94,7 +94,7 @@ function ClaimDetail({ claim, n, byId, retrieved }: { claim: Claim; n: number; b
         <li>
           <p className="label">2 · Verification</p>
           <p className="mt-1 text-ink">
-            {claim.status === 'verified' ? 'Supported by the source text.' : claim.status === 'partial' ? 'The source discusses this, but does not fully support it.' : claim.status === 'not_found' ? 'No supporting text found in the cited source.' : 'Not checked (verifier unavailable or claim cap reached).'}
+            {claim.status === 'verified' ? 'Supported by the source text.' : claim.status === 'partial' ? 'The sources back only part of this claim.' : claim.status === 'contradicted' ? 'A cited source states the opposite of part of this claim.' : claim.status === 'not_found' ? 'No supporting text found in the cited source.' : 'Not checked (verifier unavailable or claim cap reached).'}
           </p>
           {claim.similarity !== undefined && <p className="mt-1 font-mono text-[11px] text-muted">Semantic similarity to best sentence: {claim.similarity.toFixed(3)} (0–1; not a probability)</p>}
         </li>
@@ -135,8 +135,8 @@ function EvidenceGraph({ claims, sources, open, onOpen }: { claims: Claim[]; sou
   const W = 760, lx = 120, rx = W - 170
   const cy = (i: number) => 14 + i * ((H - 28) / Math.max(1, claims.length - 1 || 1))
   const sy = (i: number) => 14 + i * ((H - 28) / Math.max(1, used.length - 1 || 1))
-  const color = { verified: '#2f9e6b', partial: '#d99a1f', not_found: '#ef6673', unchecked: '#9aa1ab' } as const
-  const dash = { verified: undefined, partial: '5 3', not_found: '2 3', unchecked: '1 4' } as const
+  const color = { verified: '#2f9e6b', partial: '#d99a1f', contradicted: '#b42335', not_found: '#ef6673', unchecked: '#9aa1ab' } as const
+  const dash = { verified: undefined, partial: '5 3', contradicted: undefined, not_found: '2 3', unchecked: '1 4' } as const
   return (
     <div className="overflow-x-auto">
       <svg viewBox={`0 0 ${W} ${H}`} className="h-auto min-w-[640px] w-full" role="img" aria-label={`Graph of ${claims.length} claims linked to ${used.length} sources`}>

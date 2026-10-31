@@ -27,7 +27,7 @@ from viz.contradictions import NO_CONFLICTS, write_contradiction_map
 
 REAL_AVAILABLE_CHAIN = claims_mod._available_chain  # captured before any fixture patches it
 
-from .fakes import PLAN, fake_embed, fake_llm, fake_search
+from .fakes import PLAN, fake_embed, fake_llm, fake_search, verify_reply
 
 ROOT = Path(__file__).resolve().parents[1]
 CHAIN = [("groq", "small-model"), ("groq", "big-model"), ("gemini", "gemini-model")]
@@ -41,7 +41,7 @@ def offline(monkeypatch):
     monkeypatch.setattr(claims_mod, "embed", fake_embed)
     monkeypatch.setattr(passages_mod, "embed", fake_embed)
     # verify/claims.py has its own llm_chat reference; without this it would call the real API.
-    monkeypatch.setattr(claims_mod, "llm_chat", lambda *a, **k: '{"supported": true, "evidence": "x"}')
+    monkeypatch.setattr(claims_mod, "llm_chat", lambda system, user, **k: verify_reply(user))
     # conftest blanks the API keys, which would empty the chain; use a fixed fake chain instead.
     monkeypatch.setattr(claims_mod, "_available_chain", lambda: list(CHAIN))
 
@@ -213,15 +213,65 @@ def test_verification_statuses(monkeypatch):
     )
 
     def chat(system, user, temperature=0.0, model=None, provider=None):
-        supported = "(S1)" in user  # only S1's text truly states the claim
-        return json.dumps({"supported": supported, "evidence": "cut pesticide use by 30 percent" if supported else ""})
+        if "[S1.1]" in user:  # S1 states the whole claim
+            return verify_reply(user)
+        if "[S2.1]" in user:  # S2 backs the drone part but not the number
+            return json.dumps({"parts": [
+                {"text": "Drone spraying in Punjab trials", "verdict": "supported", "passage": "S2.1", "quote": "Drone spraying in Punjab trials"},
+                {"text": "cut pesticide use", "verdict": "unsupported", "passage": "", "quote": ""}]})
+        return verify_reply(user, "unsupported")
 
     monkeypatch.setattr(claims_mod, "llm_chat", chat)
     results = claims_mod.verify_report(report, findings, [])
 
     assert [r["status"] for r in results] == ["verified", "partial", "not_found"]
     assert results[0]["best_match"].startswith("Drone spraying cut pesticide")
+    assert results[0]["evidence"] == "Drone spraying cut pesticide use"
+    assert [p["verdict"] for p in results[1]["parts"]] == ["supported", "unsupported"]  # the missing part is named
+    assert results[0]["passages"][0]["label"] == "S1.1" and results[0]["passages"][0]["source_id"] == "S1"
     assert all(r["source_ids"] for r in results)  # the uncited "Not found" sentence is not a claim
+
+
+def test_invented_quotes_and_contradictions(monkeypatch):
+    findings = [{"id": "S1", "content": "Intro line.\nResults:\nThe trial found no change in yield. Costs fell across all farms.", "snippet": ""},
+                {"id": "S2", "content": "Yields rose by 12 percent in the second season of the trial.", "snippet": ""}]
+    report = "# T\n\nThe trial raised yields by 12 percent [S1][S2]. The trial raised yields by 40 percent [S2]."
+
+    def chat(system, user, temperature=0.0, model=None, provider=None):
+        if "40 percent" in user:  # quotes words that are not in the source: must not count
+            return json.dumps({"parts": [{"text": "yields rose 40 percent", "verdict": "supported", "passage": "S2.1",
+                                          "quote": "Yields rose by 40 percent"}]})
+        return json.dumps({"parts": [{"text": "yields rose 12 percent", "verdict": "supported", "passage": "S2.1",
+                                      "quote": "Yields rose by 12 percent ... second season"},
+                                     {"text": "in the trial", "verdict": "contradicted", "passage": "S1.1",
+                                      "quote": "the trial found NO change in yield"}]})
+
+    monkeypatch.setattr(claims_mod, "llm_chat", chat)
+    results = claims_mod.verify_report(report, findings, [])
+
+    assert [r["status"] for r in results] == ["contradicted", "not_found"]
+    first, second = results
+    assert {p["source_id"] for p in first["passages"]} == {"S1", "S2"}  # one call saw both cited sources
+    assert first["parts"][1]["source_id"] == "S1" and first["parts"][1]["verdict"] == "contradicted"
+    s1 = next(p for p in first["passages"] if p["source_id"] == "S1" and p["text"].startswith("The trial found"))
+    assert s1["heading"] == "Results:" and s1["after"] == "Costs fell across all farms." and 0 < s1["position"] < 1
+    assert second["parts"][0]["verdict"] == "unsupported" and "not in S2" in second["parts"][0]["note"]
+
+
+def test_each_clause_of_a_long_claim_gets_its_own_passage():
+    sentences = ["Peptides carry risks for many users today.", "Injection site reactions are common.",
+                 "Serious concerns include theoretical effects on cell growth.", "Weather was rainy."]
+    claim = "Peptides carry risks, such as injection site reactions, and theoretical effects on cell growth"
+    assert claims_mod.clause_matches(sentences, claim) == sentences[:3]
+
+
+def test_unusable_verifier_answer_leaves_the_claim_unchecked(monkeypatch):
+    findings = [{"id": "S1", "content": "Drone spraying cut pesticide use by 30 percent in Punjab trials.", "snippet": ""}]
+    report = "# T\n\nDrone spraying cut pesticide use [S1]."
+    monkeypatch.setattr(claims_mod, "llm_chat", lambda *a, **k: "I think it is supported.")
+    errors = []
+    assert claims_mod.verify_report(report, findings, errors)[0]["status"] == "unchecked"
+    assert any("invalid JSON" in e for e in errors)
 
 
 # ---------------------------------------------------------------- outputs
@@ -395,7 +445,7 @@ def test_verifier_walks_the_fallback_chain_then_marks_unchecked(monkeypatch):
         used.append((provider, model))
         if provider == "groq":
             raise _QuotaError()
-        return '{"supported": true, "evidence": "cut pesticide use"}'
+        return verify_reply(user)
 
     monkeypatch.setattr(claims_mod, "llm_chat", both_groq_spent)
     errors = []

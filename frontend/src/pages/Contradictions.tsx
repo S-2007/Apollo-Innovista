@@ -23,7 +23,7 @@ function loadPrefs(): Record<string, string> {
 export default function Contradictions() {
   const { report, busy, runId } = useStore()
   const [prefs, setPrefs] = useState<Record<string, string>>(loadPrefs)
-  if (!report || !runId) return <><PageHeader kicker="06 · Contradictions" title="Source disagreement" /><NeedsRun what="Contradictions" busy={busy} /></>
+  if (!report || !runId) return <><PageHeader kicker="07 · Contradictions" title="Source disagreement" /><NeedsRun what="Contradictions" busy={busy} /></>
 
   const list = report.contradictions ?? []
   const byId = new Map(report.sources.map((s) => [s.id, s]))
@@ -44,7 +44,7 @@ export default function Contradictions() {
 
   return (
     <div>
-      <PageHeader kicker="06 · Contradictions" title="Source disagreement" />
+      <PageHeader kicker="07 · Contradictions" title="Source disagreement" />
       {(check === 'not_checked' || check === 'partial') && (
         <div role="alert" className={`mb-5 border px-4 py-3 ${check === 'not_checked' ? 'border-err/60 bg-err/10' : 'border-warn/70 bg-warn/15'}`}>
           <p className={`font-display text-sm font-semibold ${check === 'not_checked' ? 'text-err-ink' : 'text-warn-ink'}`}>

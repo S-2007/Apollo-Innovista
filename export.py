@@ -11,6 +11,8 @@ write_report(state, out_dir) writes:
 import json
 from pathlib import Path
 
+from tools.text import CLAIM_STATUSES
+
 
 def _cell(text: str, limit: int = 160) -> str:
     text = " ".join(str(text).split())
@@ -26,13 +28,14 @@ def render_markdown(state: dict) -> str:
         lines.append("_No sources were cited._")
 
     claims = state.get("claims", [])
-    counts = {k: sum(c["status"] == k for c in claims) for k in ("verified", "partial", "not_found", "unchecked")}
+    counts = {k: sum(c["status"] == k for c in claims) for k in CLAIM_STATUSES}
     lines += [
         "",
         "## Claim verification summary",
         "",
         "Each cited sentence was checked against the retrieved text of the source(s) it cites. "
         f"verified: {counts['verified']}, partial: {counts['partial']}, not_found: {counts['not_found']}"
+        + (f", contradicted: {counts['contradicted']}" if counts["contradicted"] else "")
         + (f", unchecked: {counts['unchecked']}" if counts["unchecked"] else "")
         + ".",
         "",

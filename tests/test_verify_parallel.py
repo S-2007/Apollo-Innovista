@@ -5,7 +5,7 @@ import threading
 import config
 from verify import claims as claims_mod
 
-from .fakes import fake_embed
+from .fakes import fake_embed, verify_reply
 
 
 class QuotaSpent(Exception):
@@ -30,7 +30,7 @@ def test_parallel_checks_keep_order_and_drop_a_spent_model_once(monkeypatch):
             calls.append(model)
         if model == "spent":
             raise QuotaSpent()
-        return '{"supported": true, "evidence": "says the river"}'
+        return verify_reply(prompt)
 
     monkeypatch.setattr(claims_mod, "embed", fake_embed)
     monkeypatch.setattr(claims_mod, "llm_chat", fake_llm)
@@ -49,7 +49,7 @@ def test_parallel_checks_keep_order_and_drop_a_spent_model_once(monkeypatch):
 def test_progress_is_published_per_claim(monkeypatch):
     seen = []
     monkeypatch.setattr(claims_mod, "embed", fake_embed)
-    monkeypatch.setattr(claims_mod, "llm_chat", lambda *a, **k: '{"supported": false, "evidence": ""}')
+    monkeypatch.setattr(claims_mod, "llm_chat", lambda system, user, **k: verify_reply(user, "unsupported"))
     monkeypatch.setattr(claims_mod, "_available_chain", lambda: [("groq", "m")])
     monkeypatch.setattr(claims_mod.live, "publish", lambda type_, data: seen.append((type_, data)))
     claims_mod.verify_report(REPORT, FINDINGS, [])

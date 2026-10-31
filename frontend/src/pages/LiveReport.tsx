@@ -5,13 +5,13 @@
 // Everything comes from the run's event stream (store.events) and, at the end, GET /report.
 
 import { useEffect, useState } from 'react'
-import { isKnown, toMs, type AnyEvent, type Report, type Source } from '../api'
+import { isKnown, toMs, type AnyEvent, type ClaimStatus, type Report, type Source } from '../api'
 import HitlPanel from '../components/HitlPanel'
 import ProgressFeed from '../components/ProgressFeed'
 import ReportView, { withChips } from '../components/ReportView'
 import { go } from '../router'
 import { useStore } from '../store'
-import { Empty, Legend, Panel, Pill, StackedBar, STATUS_COLOR, STOP_REASON, btn, hostOf } from '../ui'
+import { Empty, Legend, Panel, Pill, StackedBar, CLAIM_KEYS, STATUS_COLOR, STOP_REASON, btn, hostOf } from '../ui'
 
 type SectionState = { text: string; draft: boolean; final?: { citations: number; notFound: boolean; writeFailed: boolean } }
 
@@ -288,8 +288,8 @@ function Progressive({ doc, byId, finished }: { doc: LiveDoc; byId: Map<string, 
 }
 
 function Verified({ report, runId }: { report: Report; runId: string }) {
-  const keys = ['verified', 'partial', 'not_found', 'unchecked'] as const
-  const counts = Object.fromEntries(keys.map((k) => [k, report.verification.filter((c) => c.status === k).length])) as Record<(typeof keys)[number], number>
+  const keys = CLAIM_KEYS
+  const counts = Object.fromEntries(keys.map((k) => [k, report.verification.filter((c) => c.status === k).length])) as Record<ClaimStatus, number>
   return (
     <>
       <div className="mt-3 border border-line bg-workspace px-3 py-2.5">
