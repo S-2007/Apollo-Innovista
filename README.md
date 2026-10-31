@@ -5,7 +5,7 @@ colorFrom: blue
 colorTo: gray
 sdk: docker
 app_port: 7860
-pinned: false
+pinned:  false 
 ---
 
 # Apollo: multi-agent deep research
