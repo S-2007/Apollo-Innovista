@@ -666,3 +666,46 @@ SQLite copy of a saved run, re-verified): claims list and filters, part verdicts
 headings, source panel; phone width without horizontal scroll, selecting a claim scrolls to its evidence.
 **Not done / limits:** saved runs keep the old verification (shown as legacy) until re-run. No page numbers (web text).
 Source type is a domain heuristic, not credibility. LLM verdicts still vary run to run (one run each above).
+
+## Phase 3.19: research-quality rules (2026-10-31)
+
+**Asked (10 rules):** a minimum relevant-source coverage target; original research before secondary articles; a
+citation on every claim; verify each citation's exact snippet; remove duplicate sources; keep publication date apart
+from research date; never label unsupported claims verified; say clearly when search results are insufficient; never
+hide contradictory evidence; run quality checks before research completes.
+**Already in place:** a citation on every claim (`enforce_citations`), exact-quote checks and never-verified-unsupported
+(Phase 3.18 verifier), exact-URL de-duplication, contradictions on their own page.
+**Added (`tools/quality.py`, used by `graph/nodes.py`):**
+- Coverage: each sub-question needs `MIN_SOURCES_PER_QUESTION` (2) readable, relevant sources. Below that, code adds
+  a "<sub-question> research study" search and Hermes cannot call the research complete (round limit still applies).
+- Relevance: a page must contain `MIN_RELEVANCE` (30%) of its sub-question's key words. On a real run, dictionary
+  pages returned for a long sub-question scored 8-23% and every on-topic page 38% or more.
+- Original research first: `source_kind` (journals, PubMed/PMC, arXiv, `.gov`, WHO ...; rule-based from the URL) puts
+  primary sources first when choosing pages to read and in the writer's source list, marked "(original research or
+  official)". The writer must state disagreements and cite each side.
+- Duplicates: pages with the same article text (word 5-gram overlap >= 0.8) are dropped; ids are numbered after
+  dropping, so they have no gaps. Dropped pages are not read again in a later round.
+- Dates: each source keeps `published` (from the page's own metadata, or Tavily's date; "" = unknown, never guessed)
+  and `retrieved_at` (research date). Downloaded pages are reused; otherwise `FETCH_PUBLISH_DATES` reads the first
+  64 KB of the page.
+- `quality_check` node after verification: 9 checks (coverage, search results, original research, citations,
+  quotes behind verified claims, unsupported claims, contradictions, duplicates/off-topic, dates), each pass / warn /
+  fail with a reason. Checks never block the report; the report ends with "Evidence limits and quality checks",
+  listing every warning, every conflict between sources and every contradicted claim with its quote (no [S#], so the
+  section is never verified as a claim). `quality` event; `/report` gains `quality`, `quality_overall`,
+  `duplicates`, `irrelevant`; sources gain `kind`, `published`, `retrieved_at`.
+- Section flags: `not_found` now means "no cited answer at all"; `partly_not_found` marks answered sections with a
+  missing point (both used to be "not found", so Verification showed answered sections as not found).
+**UI:** Verification lists the backend checks with reasons (older runs keep the old checklist), source-kind, date
+and removal counts; Sources and Evidence Explorer show "Published" and "Researched" separately and the source kind;
+the live feed and the finished Live Report show the quality result.
+**Real runs ("Does intermittent fasting improve blood sugar control in people with type 2 diabetes?"):** first run:
+3 dictionary pages counted as coverage, which led to the relevance rule. Second run: 3 off-topic and the duplicate
+copies of 2 articles removed; 7 of 12 cited sources original research; 18 claims (17 verified, 1 contradicted, quoted
+in the report); 1 source-vs-source conflict listed; 8 of 15 sources state a publication date. Overall: passed with
+warnings (parts of 3 sub-questions not found; conflict; dates).
+**Checks:** `pytest` 120 passed (new `tests/test_quality.py`: source kind, dates, original-first + duplicate drop +
+numbering, coverage follow-up, off-topic drop, no re-read, checks and report section, writer order, results check).
+`tsc`/`vite build` clean; Verification, Sources and the report checked in the browser on a local copy of that run.
+**Limits:** source kind and relevance are word/URL rules, not judgements of quality; publication dates are unknown
+when a page states none; more searches per run (coverage follow-ups, date requests) use more search quota and time.

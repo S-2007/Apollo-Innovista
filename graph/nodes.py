@@ -37,8 +37,18 @@ from langgraph.types import Send, interrupt
 import config
 import live
 from llm import chat as llm_chat
-from tools.extract import page_content
+from tools.extract import page_content, page_date
 from tools.passages import relevant_passages
+from tools.quality import (
+    limits_section,
+    overall,
+    published_iso,
+    quality_checks,
+    relevance,
+    same_content,
+    source_kind,
+    usable_per_section,
+)
 from tools.jsonparse import parse_json
 from tools.search import search as web_search
 from tools.text import (
@@ -207,7 +217,9 @@ def athena_search(state: ResearchState) -> dict:
     events, errors = list(state["events"]), list(state["errors"])
     findings = list(state["findings"])
     searched = list(state["searched_queries"])
-    seen = {_norm_url(f["url"]) for f in findings}
+    # Pages dropped earlier (duplicates, off-topic) are not read again in a later round.
+    dropped = [d["url"] for d in state.get("duplicates", []) + state.get("irrelevant", [])]
+    seen = {_norm_url(u) for u in [f["url"] for f in findings] + dropped}
     rnd = state["round_no"]
 
     # Step 1: search all queries at once (each mostly waits on the search API), then pick new pages
@@ -239,7 +251,8 @@ def athena_search(state: ResearchState) -> dict:
             continue
 
         added = 0
-        for r in results:
+        # Original research and official publications are read first; the search order breaks ties.
+        for r in sorted(results, key=lambda r: source_kind(r["url"]) != "primary"):
             if added >= config.PAGES_PER_QUERY:
                 break
             key = _norm_url(r["url"])
@@ -247,7 +260,7 @@ def athena_search(state: ResearchState) -> dict:
                 continue
             seen.add(key)
             finding = {
-                "id": f"S{len(findings) + len(new) + 1}",
+                "id": "",  # numbered after duplicates are removed (step 3)
                 "section": item["section"],
                 "query": query,
                 "title": r.get("title", ""),
@@ -255,28 +268,56 @@ def athena_search(state: ResearchState) -> dict:
                 "snippet": r.get("snippet", ""),
                 "content": "",
                 "extracted_by": "",
+                "kind": source_kind(r["url"]),
+                "published": published_iso(r.get("published", "")),  # the page's own date, "" = unknown
+                "retrieved_at": int(time.time()),                      # the research date: when Apollo read it
             }
             new.append((finding, r.get("raw_content", "")))
             added += 1
         events.append(f"[Athena] {query!r}: {len(results)} results, {added} new sources")
 
-    # Step 2 (parallel): extract page text. Ids are already fixed, so finish order does not matter.
+    # Step 2 (parallel): extract page text and the page's stated publication date.
     def _extract(entry):
         finding, raw = entry
         errs: list[str] = []
         finding["content"], finding["extracted_by"] = page_content(finding["url"], raw, errs)
+        finding["published"] = finding["published"] or page_date(finding["url"])
         return errs
 
     with ThreadPoolExecutor(max_workers=config.EXTRACT_WORKERS) as pool:
         for errs in pool.map(_extract, new):  # map keeps input order, so error order is stable
             errors.extend(errs)
-    findings.extend(f for f, _ in new)
 
-    with_text = sum(bool(f["content"]) for f, _ in new)
+    # Step 3: drop pages that are not about their sub-question (e.g. a dictionary entry for one of its words)
+    # or carry the same article as one already kept (one story at two URLs), then number the rest in query
+    # order. Ids are given only now, so the numbering has no gaps.
+    duplicates, irrelevant = list(state.get("duplicates", [])), list(state.get("irrelevant", []))
+    kept: list[dict] = []
+    for f, _ in new:
+        text = f["content"] or f["snippet"]
+        score = relevance(text, state["plan"][f["section"]]) if f["section"] < len(state["plan"]) else 1.0
+        if text and score < config.MIN_RELEVANCE:
+            irrelevant.append({"url": f["url"], "relevance": round(score, 2)})
+            events.append(f"[Athena] Dropped {f['url']}: not about sub-question {f['section'] + 1} "
+                          f"(shares {score:.0%} of its key words)")
+            continue
+        twin = next((k for k in findings + kept if f["content"] and k["content"] and same_content(f["content"], k["content"])), None)
+        if twin is not None:
+            duplicates.append({"url": f["url"], "duplicate_of": twin["id"]})
+            events.append(f"[Athena] Dropped {f['url']}: same text as {twin['id']}")
+            continue
+        f["id"] = f"S{len(findings) + len(kept) + 1}"
+        kept.append(f)
+    findings.extend(kept)
+
+    with_text = sum(bool(f["content"]) for f in kept)
     events.append(
-        f"[Athena] Round {rnd} done; {len(new)} new sources ({with_text} with page text), total {len(findings)}"
+        f"[Athena] Round {rnd} done; {len(kept)} new sources ({with_text} with page text"
+        + (f", {len(new) - len(kept)} duplicate or off-topic page(s) dropped" if len(new) > len(kept) else "")
+        + f"), total {len(findings)}"
     )
-    return {"findings": findings, "searched_queries": searched, "pending_queries": [], "events": events, "errors": errors}
+    return {"findings": findings, "searched_queries": searched, "pending_queries": [], "duplicates": duplicates,
+            "irrelevant": irrelevant, "events": events, "errors": errors}
 
 
 # ---------------------------------------------------------------- Hermes: review
@@ -312,6 +353,24 @@ def _review_prompt(state: ResearchState, errors: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _coverage_queries(state: ResearchState, events: list[str]) -> list[Query]:
+    """One follow-up search for each sub-question below MIN_SOURCES_PER_QUESTION readable sources.
+
+    Written by code, not Hermes: the sub-question itself asks for research studies, which also
+    favours original research. A sub-question whose follow-up was already searched gets none."""
+    already = {q.lower() for q in state["searched_queries"]}
+    out: list[Query] = []
+    for i, n in enumerate(usable_per_section(state)):
+        if n >= config.MIN_SOURCES_PER_QUESTION:
+            continue
+        query = f"{state['plan'][i]} research study"
+        if query.lower() not in already:
+            out.append({"query": query, "section": i})
+            events.append(f"[Apollo] Sub-question {i + 1} has {n} readable source(s), target "
+                          f"{config.MIN_SOURCES_PER_QUESTION}: searching {query!r}")
+    return out
+
+
 def hermes_review(state: ResearchState) -> dict:
     events, errors = list(state["events"]), list(state["errors"])
     valid_ids = {f["id"] for f in state["findings"]}
@@ -324,15 +383,17 @@ def hermes_review(state: ResearchState) -> dict:
         errors.append(f"hermes_review LLM call failed: {type(exc).__name__}: {str(exc)[:200]}")
     obj = parse_json(raw)
 
+    coverage = _coverage_queries(state, events)
     if obj is None or not isinstance(obj.get("complete"), bool):
         if raw:
             errors.append(f"hermes_review got invalid JSON: {raw[:200]!r}")
         events.append("[Hermes] Review output unusable; treating as incomplete with no gaps.")
-        return {**done, "hermes_complete": False, "gaps": [], "events": events, "errors": errors}
+        return {**done, "hermes_complete": False, "gaps": coverage[: config.MAX_GAP_QUERIES], "events": events, "errors": errors}
 
     already = {q.lower() for q in state["searched_queries"]}
     gaps = [g for g in _to_queries(obj.get("gaps"), state["plan"]) if g["query"].lower() not in already]
-    gaps = gaps[: config.MAX_GAP_QUERIES]
+    # The coverage target comes first; Hermes' own follow-up queries fill the remaining places.
+    gaps = (coverage + [g for g in gaps if g["section"] not in {c["section"] for c in coverage}])[: config.MAX_GAP_QUERIES]
 
     contradictions = list(state["contradictions"])
     for c in obj.get("contradictions") or []:
@@ -345,7 +406,8 @@ def hermes_review(state: ResearchState) -> dict:
         else:
             errors.append(f"hermes_review dropped contradiction with unknown/invalid sources: {c!r}"[:300])
 
-    complete = obj["complete"]
+    # "Complete" also needs the coverage target: Hermes cannot call a thinly sourced sub-question done.
+    complete = obj["complete"] and not coverage
     events.append(
         f"[Hermes] complete={complete}, gaps={[g['query'] for g in gaps]}, contradictions={len(contradictions)}"
     )
@@ -442,6 +504,9 @@ WRITE_SYSTEM = (
     "unless you cite each of them.\n"
     "- End every sentence with the citation(s) of the source(s) that state it, like [S3] or [S3][S5].\n"
     "- Never cite an id that is not in the list.\n"
+    "- Sources marked (original research or official) are primary evidence: where sources overlap, state "
+    "the fact from them and cite them first.\n"
+    "- If sources disagree, say so in one sentence and cite each side; never pick one side silently.\n"
     f"- If the sources do not support a point the sub-question asks about, write a sentence saying it was "
     f"\"{NOT_FOUND}\" (with no citation).\n"
     "Reply with the paragraph only."
@@ -449,11 +514,14 @@ WRITE_SYSTEM = (
 
 
 def _source_block(findings: list[dict], question: str, errors: list[str]) -> str:
-    """Each source's passages most relevant to the sub-question (not just its first N chars)."""
+    """Each source's passages most relevant to the sub-question (not just its first N chars).
+
+    Original research and official sources come first and are marked, so the writer leans on them."""
     parts = []
-    for f in findings:
+    for f in sorted(findings, key=lambda f: f.get("kind") != "primary"):
         text = relevant_passages(f["content"] or f["snippet"], question, config.WRITE_CHARS_PER_SOURCE, errors)
-        parts.append(f"[{f['id']}] {f['title']}\n{text}")
+        mark = " (original research or official)" if f.get("kind") == "primary" else ""
+        parts.append(f"[{f['id']}]{mark} {f['title']}\n{text}")
     return "\n\n".join(parts)
 
 
@@ -622,3 +690,23 @@ def verify_claims(state: ResearchState) -> dict:
     counts = {k: sum(c["status"] == k for c in claims) for k in CLAIM_STATUSES}
     events.append(f"[Verify] {len(claims)} cited claims: " + ", ".join(f"{k}={v}" for k, v in counts.items()))
     return {"claims": claims, "events": events, "errors": errors}
+
+
+# ---------------------------------------------------------------- quality checks
+
+
+def quality_check(state: ResearchState) -> dict:
+    """The research-quality rules (tools/quality.py), run before the report is final.
+
+    Checks never block the report: each result is recorded, and the report gains a section that
+    states its limits (thin coverage, failed searches, unsupported claims) and every conflict."""
+    events = list(state["events"])
+    checks = quality_checks(state)
+    verdict = overall(checks)
+    events.append(f"[Quality] {verdict}: " + ", ".join(f"{c['id']}={c['status']}" for c in checks))
+    return {
+        "quality": checks,
+        "quality_overall": verdict,
+        "report": state["report"] + "\n\n" + limits_section(state, checks),
+        "events": events,
+    }

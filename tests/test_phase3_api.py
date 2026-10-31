@@ -110,6 +110,10 @@ def test_run_streams_ordered_events_and_serves_report(client):
     assert md.status_code == 200 and "## References" in md.text
     assert "attachment" in md.headers["content-disposition"]
 
+    assert {c["id"] for c in report["quality"]} >= {"coverage", "citations", "quotes", "contradictions", "dates"}
+    assert report["quality_overall"] in {"passed", "passed_with_warnings"} and types.count("quality") == 1
+    assert all(s["kind"] in {"primary", "secondary"} and s["retrieved_at"] for s in report["sources"])
+
     evidence = client.get(f"/api/runs/{run_id}/evidence").json()
     assert evidence["legacy"] is False and len(evidence["claims"]) == len(report["verification"])
     first = evidence["claims"][0]
@@ -131,7 +135,7 @@ def test_evidence_of_runs_verified_before_claim_parts_is_marked_legacy(client):
 
 def test_failed_search_becomes_search_failed_event_and_run_completes(client, monkeypatch):
     def search(query, errors):
-        if query == "q two":
+        if query.startswith("q two"):  # also its coverage follow-up, "q two research study"
             errors.append(f"search[tavily] returned no results for {query!r}")
             return []
         return fake_search()(query, errors)
@@ -139,7 +143,7 @@ def test_failed_search_becomes_search_failed_event_and_run_completes(client, mon
     monkeypatch.setattr(nodes, "web_search", search)
     events = _sse_events(client, _start(client))
     failed = [e for e in events if e["type"] == "search_failed"]
-    assert [e["data"]["query"] for e in failed] == ["q two"]
+    assert [e["data"]["query"] for e in failed] == ["q two", "q two research study"]  # + coverage follow-up
     assert events[-1]["data"]["status"] == "complete"
     assert any(e["type"] == "section_written" and e["data"]["not_found"] for e in events)
 
@@ -374,7 +378,9 @@ def test_report_streams_before_verification(client):
     # the whole report is on screen before the (slow) claim verification ends
     assert types.index("report_written") < types.index("verification")
     report = client.get(f"/api/runs/{run_id}/report").json()
-    assert next(e["data"]["markdown"] for e in events if e["type"] == "report_written") == report["markdown"]
+    streamed = next(e["data"]["markdown"] for e in events if e["type"] == "report_written")
+    # The final report is the streamed one plus the section the quality checks add.
+    assert report["markdown"].startswith(streamed) and "## Evidence limits and quality checks" in report["markdown"]
 
     found = next(e["data"] for e in events if e["type"] == "search_done" and e["data"]["result_count"])
     assert len(found["sources"]) == found["result_count"] and {"id", "title", "url"} <= found["sources"][0].keys()

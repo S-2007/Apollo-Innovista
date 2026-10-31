@@ -42,13 +42,19 @@ export default function Verification() {
     { label: 'At least 80% of sources read in full', ok: report.sources.length > 0 && fullText / report.sources.length >= 0.8 },
     { label: 'Contradiction check ran in every review round', ok: conflictCheck(report.review_health) === 'checked' },
   ]
-  const passed = checks.filter((c) => c.ok).length
+  // Runs from Phase 3.19 on carry the checks the backend ran before completing (tools/quality.py);
+  // older runs fall back to the checklist above, computed here from the report.
+  const backend = report.quality ?? []
+  const passed = backend.length ? backend.filter((c) => c.status === 'pass').length : checks.filter((c) => c.ok).length
+  const ofTotal = backend.length || checks.length
+  const dated = report.sources.filter((s) => s.published).length
+  const kinds = report.sources.some((s) => s.kind)
 
   return (
     <div>
       <PageHeader kicker="10 · Verification" title="Verification" />
       <div className="grid grid-cols-2 gap-px border border-line bg-line md:grid-cols-5 [&>*]:border-0">
-        <Stat label="Quality score" value={`${passed}/${checks.length}`} sub="checklist below" tone={passed === checks.length ? 'good' : passed >= checks.length / 2 ? 'warn' : 'bad'} />
+        <Stat label="Quality checks" value={`${passed}/${ofTotal}`} sub="passed · list below" tone={passed === ofTotal ? 'good' : passed >= ofTotal / 2 ? 'warn' : 'bad'} />
         <Stat label="Verified" value={pct(counts.verified, total)} sub={`${counts.verified} of ${total} claims`} tone="good" />
         <Stat label="Partial" value={counts.partial} sub="discussed, not fully supported" tone="warn" />
         <Stat label="Not found" value={counts.not_found} sub="hallucination risk" tone={counts.not_found ? 'bad' : 'normal'} />
@@ -59,11 +65,23 @@ export default function Verification() {
         <Panel label="Claim-level verification" title="Outcomes">
           <StackedBar height="h-3" parts={KEYS.map((k) => ({ value: counts[k], color: STATUS_COLOR[k], label: k }))} />
           <Legend items={KEYS.map((k) => ({ color: STATUS_COLOR[k], label: k.replace('_', ' '), value: counts[k] }))} />
-          <p className="label mt-5">Research-quality checklist</p>
-          <ul className="mt-2 divide-y divide-hair">
-            {checks.map((c) => <li key={c.label} className="flex items-center justify-between gap-3 py-2 text-sm"><span className="text-ink">{c.label}</span><Pill status={c.ok ? 'done' : 'failed'} label={c.ok ? 'pass' : 'fail'} /></li>)}
-          </ul>
-          <p className="mt-2 text-[11px] text-muted">Score = checks passed ÷ {checks.length}. It is a checklist, not a probability that the report is correct.</p>
+          <p className="label mt-5">{backend.length ? 'Quality checks run before the report was completed' : 'Research-quality checklist (older run)'}</p>
+          {backend.length ? (
+            <ul className="mt-2 divide-y divide-hair">
+              {backend.map((c) => (
+                <li key={c.id} className="py-2 text-sm">
+                  <div className="flex items-center justify-between gap-3"><span className="text-ink">{c.label}</span>
+                    <Pill status={c.status === 'pass' ? 'done' : c.status === 'warn' ? 'warn' : 'failed'} label={c.status === 'pass' ? 'pass' : c.status === 'warn' ? 'warning' : 'fail'} /></div>
+                  {c.status !== 'pass' && <p className="mt-1 text-xs text-muted">{c.detail}</p>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <ul className="mt-2 divide-y divide-hair">
+              {checks.map((c) => <li key={c.label} className="flex items-center justify-between gap-3 py-2 text-sm"><span className="text-ink">{c.label}</span><Pill status={c.ok ? 'done' : 'failed'} label={c.ok ? 'pass' : 'fail'} /></li>)}
+            </ul>
+          )}
+          <p className="mt-2 text-[11px] text-muted">{passed} of {ofTotal} checks passed. A warning does not stop the report; it says what the evidence cannot support. This is a checklist, not a probability that the report is correct.</p>
         </Panel>
 
         <Panel label="Citations" title="Citation accuracy & support">
@@ -88,7 +106,7 @@ export default function Verification() {
               <li key={s.index} className="flex items-start gap-3 py-2.5">
                 <span className="font-mono text-xs text-accent-ink">Q{s.index}</span>
                 <span className="min-w-0 flex-1 text-sm text-ink">{s.question}</span>
-                {s.write_failed ? <Pill status="failed" label="not written" /> : <Pill status={s.not_found ? 'not_found' : s.citations ? 'verified' : 'partial'} label={s.not_found ? 'not found' : `${s.citations} cited`} />}
+                {s.write_failed ? <Pill status="failed" label="not written" /> : <Pill status={s.not_found ? 'not_found' : s.partly_not_found ? 'partial' : s.citations ? 'verified' : 'partial'} label={s.not_found ? 'not found' : `${s.citations} cited${s.partly_not_found ? ' · part not found' : ''}`} />}
               </li>
             ))}
           </ul>
@@ -109,7 +127,14 @@ export default function Verification() {
             {!passes.size && <li className="text-xs text-muted">No metered verifier calls for this run.</li>}
             {(errs.quota ?? []).map((e, i) => <li key={i} className="text-xs text-warn-ink">{e.text}</li>)}
           </ul>
-          <div className="mt-4"><Unavailable what="Source freshness & search-result recency" need="publication dates; the backend records only when a source was retrieved." /></div>
+          {kinds ? (
+            <dl className="mt-4 divide-y divide-hair border-t border-hair text-sm">
+              <Row k="Original research or official sources" v={`${report.sources.filter((s) => s.kind === 'primary').length} of ${report.sources.length}`} />
+              <Row k="Sources stating a publication date" v={`${dated} of ${report.sources.length}`} />
+              <Row k="Duplicate pages removed" v={(report.duplicates ?? []).length} />
+              <Row k="Off-topic pages removed" v={(report.irrelevant ?? []).length} />
+            </dl>
+          ) : <div className="mt-4"><Unavailable what="Source kind and publication dates" need="a run started after Phase 3.19; older runs recorded neither." /></div>}
         </Panel>
       </div>
     </div>

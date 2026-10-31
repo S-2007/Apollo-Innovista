@@ -9,7 +9,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { getEvidence, type ClaimPart, type Contradiction, type Evidence, type EvidenceClaim, type Passage, type PartVerdict, type Source } from '../api'
 import { sourceCategory } from '../insights'
 import { useStore } from '../store'
-import { CLAIM_KEYS, Empty, Meter, NeedsRun, PageHeader, Panel, Pill, hostOf } from '../ui'
+import { CLAIM_KEYS, Empty, Meter, NeedsRun, PageHeader, Panel, Pill, fmtDate, hostOf } from '../ui'
 
 const KICKER = '06 · Evidence explorer'
 const TITLE = 'From statement to source'
@@ -277,8 +277,14 @@ function SourcePanel({ source, passage, claim, conflicts }: { source: Source; pa
           ) : <span className="text-muted">Not available: this run kept no passages per source.</span>}
         </Row>
         <Row label="Source type">
+          {source.kind === 'primary' ? 'Original research or official · ' : source.kind === 'secondary' ? 'Secondary article · ' : ''}
           {sourceCategory(source.url)} · {hostOf(source.url)}
           <p className="mt-0.5 text-[11px] text-muted">A rule-based guess from the web address, not a credibility rating.</p>
+        </Row>
+        <Row label="Dates">
+          Published: {source.published || (source.retrieved_at ? 'not stated by the page' : 'not recorded for this run')}
+          <br />Researched: {source.retrieved_at ? fmtDate(source.retrieved_at * 1000) : 'not recorded for this run'}
+          <p className="mt-0.5 text-[11px] text-muted">The publication date comes from the page itself; the research date is when Apollo read it.</p>
         </Row>
         <Row label="Found for">
           {source.question ? <>Sub-question {source.section}: {source.question}</> : <span className="text-muted">–</span>}

@@ -61,7 +61,7 @@ START → Apollo plans → (you approve/edit) → Athena searches → Hermes rev
                                                 ↑                                                     │
                                                 └──────────── round 2 with Hermes' gap queries ───────┤
                                                                                                       ↓
-              one writer per sub-question (parallel) → assemble → verify every claim → report.md + conflict map
+  one writer per sub-question (parallel) → assemble → verify every claim → quality checks → report.md + conflict map
 ```
 
 - **Stopping is decided in code**, not by the LLM. Apollo stops when Hermes says complete, after 2 rounds, when the
@@ -73,6 +73,20 @@ START → Apollo plans → (you approve/edit) → Athena searches → Hermes rev
   exact quote. Code checks each quote is really in the source, so an invented quote cannot verify anything.
   Result: verified / partial / contradicted / not_found / unchecked. The **Evidence Explorer** page shows each
   claim's parts, the passages (quotes highlighted, with context and position) and the source.
+- **Research-quality rules** (`tools/quality.py`), applied by code:
+  - Each sub-question should have at least `MIN_SOURCES_PER_QUESTION` (2) readable sources. A thinner one gets a
+    follow-up search, and Hermes cannot call the research complete until coverage is met or the round limit hits.
+  - Original research and official publications (journals, PubMed, arXiv, `.gov`, WHO, ...) are read first and
+    listed first to the writer. This is a rule-based guess from the web address, not a credibility score.
+  - Pages carrying the same article at two URLs are dropped (word 5-gram overlap).
+  - Pages that are not about their sub-question are dropped: a page must contain at least `MIN_RELEVANCE` (30%)
+    of the sub-question's key words (dictionary entries for one of its words fell at 8-23% on a real run).
+  - Each source keeps its publication date (from the page's own metadata, or "unknown") apart from the research
+    date (when Apollo read it).
+  - Before a report completes, quality checks run: coverage, search results, original research, citations, exact
+    quotes behind every "verified" claim, unsupported claims, contradictions, duplicates, dates. A failed check does
+    not stop the report; the report ends with an "Evidence limits and quality checks" section that lists every
+    warning and every conflict between sources.
 - **Failures never crash a run.** A failed search, an unreadable page or a rate limit becomes an amber warning in
   the UI, and the run continues.
 - The web API (`api.py`) runs the graph in a background thread and streams typed events (`events.py`) over

@@ -560,6 +560,9 @@ def _source_rows(state: dict) -> list[dict]:
             "section": f["section"] + 1,
             "question": state["plan"][f["section"]] if f["section"] < len(state["plan"]) else "",
             "extracted_by": f["extracted_by"] or "snippet only",
+            "kind": f.get("kind", ""),                # "primary" | "secondary" ("" in runs before Phase 3.19)
+            "published": f.get("published", ""),      # the page's own date, "" = unknown
+            "retrieved_at": f.get("retrieved_at"),    # research date (epoch seconds), None in older runs
             "cited": f["id"] in set(find_citations(state["report"])),
             "claims": {s: statuses.count(s) for s in CLAIM_STATUSES if s in statuses},
         })
@@ -592,11 +595,17 @@ def get_report(run_id: str, user: User) -> dict:
         "errors": state["errors"],
         "sections": [
             {"index": s["index"] + 1, "question": s["question"], "citations": len(find_citations(s["text"])),
-             "not_found": NOT_FOUND in s["text"].lower(), "write_failed": s["text"] == WRITE_FAILED,
+             "not_found": not find_citations(s["text"]) and s["text"] != WRITE_FAILED,
+             "partly_not_found": bool(find_citations(s["text"])) and NOT_FOUND in s["text"].lower(),
+             "write_failed": s["text"] == WRITE_FAILED,
              "source_ids": s["source_ids"]}
             for s in sorted(state["sections"], key=lambda s: s["index"])
         ],
         "citation_check": _citation_check(state),
+        "quality": state.get("quality", []),                  # checks run before completion (tools/quality.py)
+        "quality_overall": state.get("quality_overall", ""),  # "" in runs before Phase 3.19
+        "duplicates": state.get("duplicates", []),
+        "irrelevant": state.get("irrelevant", []),
         "review_health": _review_health(state, events),
     }
 

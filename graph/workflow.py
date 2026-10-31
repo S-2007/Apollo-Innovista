@@ -4,7 +4,7 @@
                                                ^                                                |
                                                |------------- next round -----------------------|
                                                                                                 |
-          END <- verify_claims <- assemble <- write_section x N (one per plan section, parallel) <-- finish
+          END <- quality_check <- verify_claims <- assemble <- write_section x N (one per plan section, parallel) <-- finish
 
     * review_plan / review_gaps call LangGraph interrupt() when auto_approve=False.
 
@@ -39,6 +39,7 @@ def build_graph(checkpointer=None):
     g.add_node("write_section", nodes.write_section)
     g.add_node("assemble", nodes.assemble)
     g.add_node("verify_claims", nodes.verify_claims)
+    g.add_node("quality_check", nodes.quality_check)
 
     g.add_edge(START, "apollo_plan")
     g.add_edge("apollo_plan", "review_plan")
@@ -49,7 +50,8 @@ def build_graph(checkpointer=None):
     g.add_conditional_edges("decide", nodes.route_after_decide, ["athena_search", "write_section"])
     g.add_edge("write_section", "assemble")  # runs once, after every write_section task finishes
     g.add_edge("assemble", "verify_claims")
-    g.add_edge("verify_claims", END)
+    g.add_edge("verify_claims", "quality_check")
+    g.add_edge("quality_check", END)
     return g.compile(checkpointer=checkpointer or MemorySaver())
 
 

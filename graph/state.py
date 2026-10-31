@@ -19,6 +19,9 @@ class Finding(TypedDict):
     snippet: str   # short text from the search API
     content: str   # extracted page text (capped), "" if extraction failed
     extracted_by: str  # "trafilatura" | "tavily_raw" | "" (none)
+    kind: str      # "primary" (original research / official) or "secondary": rule-based, from the URL
+    published: str  # the page's own publication date (YYYY[-MM[-DD]]), "" = it states none
+    retrieved_at: int  # research date: when Apollo read the page (epoch seconds)
 
 
 class Query(TypedDict):
@@ -110,6 +113,12 @@ class ResearchState(TypedDict):
     references: list[Reference]           # only ids actually cited in `report`
     claims: list[ClaimCheck]
 
+    # Research-quality rules (tools/quality.py)
+    duplicates: list[dict]                # pages dropped as the same article as a kept source: {url, duplicate_of}
+    irrelevant: list[dict]                # pages dropped as not about their sub-question: {url, relevance}
+    quality: list[dict]                   # checks run before completion: {id, label, status, detail}
+    quality_overall: str                  # "passed" | "passed_with_warnings" | "failed" ("" before the check)
+
 
 def initial_state(
     topic: str,
@@ -144,4 +153,8 @@ def initial_state(
         report="",
         references=[],
         claims=[],
+        duplicates=[],
+        irrelevant=[],
+        quality=[],
+        quality_overall="",
     )

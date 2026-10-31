@@ -8,7 +8,7 @@ import { useState } from 'react'
 import type { Source } from '../api'
 import { CATEGORIES, classifyErrors, sourceCategory, type SourceCategory } from '../insights'
 import { useStore } from '../store'
-import { Empty, NeedsRun, PageHeader, Panel, Pill, Segmented, StackedBar, CLAIM_KEYS, STATUS_COLOR, Stat, Unavailable, field, hostOf, pct } from '../ui'
+import { Empty, NeedsRun, PageHeader, Panel, Pill, Segmented, StackedBar, CLAIM_KEYS, STATUS_COLOR, Stat, Unavailable, field, fmtDate, hostOf, pct } from '../ui'
 
 const KEYS = CLAIM_KEYS
 type Sort = 'id' | 'claims' | 'domain'
@@ -100,9 +100,15 @@ export default function Sources() {
                     <a href={s.url} target="_blank" rel="noreferrer" className="text-sm text-ink underline decoration-line underline-offset-2 hover:decoration-ink [overflow-wrap:anywhere]">{s.title || s.url}</a>
                     <p className="mt-0.5 truncate font-mono text-[10.5px] text-muted">{s.url}</p>
                     {s.question && <p className="mt-1 text-xs text-muted">Retrieved for Q{s.section}: {s.question}</p>}
+                    {s.retrieved_at && (
+                      <p className="mt-0.5 font-mono text-[10.5px] text-muted">
+                        Published: {s.published || 'not stated by the page'} · Researched: {fmtDate(s.retrieved_at * 1000)}
+                      </p>
+                    )}
                     {claimsOf(s) > 0 && <div className="mt-2 max-w-xs"><StackedBar height="h-1.5" parts={KEYS.map((k) => ({ value: s.claims?.[k] ?? 0, color: STATUS_COLOR[k], label: k }))} /></div>}
                   </div>
                   <div className="flex flex-wrap content-start gap-1.5 md:max-w-[260px] md:justify-end">
+                    {s.kind === 'primary' && <Pill status="working" label="original research / official" />}
                     <Pill status="idle" label={sourceCategory(s.url)} />
                     <Pill status={s.extracted_by === 'snippet only' ? 'partial' : 'done'} label={s.extracted_by === 'snippet only' ? 'snippet only' : 'full text'} />
                     <Pill status={s.cited ? 'verified' : 'unchecked'} label={s.cited ? 'cited' : 'not cited'} />

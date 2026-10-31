@@ -18,4 +18,5 @@ def no_real_api_keys(monkeypatch):
         monkeypatch.setattr(config, name, "")
     monkeypatch.setattr(llm, "_clients", {})
     monkeypatch.setattr(llm, "_cooling", {})  # a model marked out of quota must not leak between tests
+    monkeypatch.setattr(config, "FETCH_PUBLISH_DATES", False)  # no page downloads for dates
     passages.clear_cache()  # embeddings cached by one test (with its fake model) must not leak into the next

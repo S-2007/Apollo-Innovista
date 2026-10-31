@@ -24,7 +24,8 @@ from .fakes import PLAN, fake_embed, fake_llm, fake_search
 
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
-    monkeypatch.setattr(nodes, "page_content", lambda url, raw, errors: ("page text", "trafilatura"))
+    # Page text names its page (and so the query), as a real page is about what was searched for.
+    monkeypatch.setattr(nodes, "page_content", lambda url, raw, errors: (f"page text from {url}", "trafilatura"))
     monkeypatch.setattr(nodes, "web_search", fake_search())
     monkeypatch.setattr(passages_mod, "embed", fake_embed)
     monkeypatch.setattr(nodes, "verify_report", lambda report, findings, errors: [])  # covered in test_phase2
@@ -62,12 +63,14 @@ def test_empty_search_does_not_crash(monkeypatch):
 
     assert final["status"] == "failed"  # nothing found, but the run ended cleanly
     assert final["findings"] == []
-    assert sum("No results" in e for e in final["events"]) == len(PLAN)
+    # Below the coverage target, every sub-question gets one more search ("... research study") before stopping.
+    assert sum("No results" in e for e in final["events"]) == 2 * len(PLAN)
+    assert final["round_no"] == 2 and all(q.endswith("research study") for q in final["searched_queries"][len(PLAN):])
 
 
 def test_empty_result_for_one_subquestion_continues(monkeypatch):
     monkeypatch.setattr(nodes, "llm_chat", fake_llm(lambda n: '{"complete": true, "gaps": []}'))
-    monkeypatch.setattr(nodes, "web_search", fake_search(empty_for={"q two"}))
+    monkeypatch.setattr(nodes, "web_search", fake_search(empty_for={"q two", "q two research study"}))
 
     final = run_research("topic", max_rounds=2, timeout_seconds=60)
 

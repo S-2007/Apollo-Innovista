@@ -87,6 +87,13 @@ SEARCH_WORKERS = _int("SEARCH_WORKERS", 5)  # web searches run at once per round
 # rest). provider_first skips most downloads and HTML parsing, the slowest step on Render free's 0.1 CPU.
 EXTRACT_ORDER = os.getenv("EXTRACT_ORDER", "own").strip().lower()
 
+# --- Research quality rules (tools/quality.py) ---
+MIN_SOURCES_PER_QUESTION = _int("MIN_SOURCES_PER_QUESTION", 2)  # readable sources each sub-question should have
+DUPLICATE_OVERLAP = 0.8   # share of word 5-grams two pages must have in common to count as the same article
+MIN_RELEVANCE = 0.3       # share of the sub-question's key words a page must contain (tools/quality.relevance)
+# Read each page's stated publication date from its <head> when the page itself was not downloaded.
+FETCH_PUBLISH_DATES = os.getenv("FETCH_PUBLISH_DATES", "true").strip().lower() == "true"
+
 # --- Writing and verification (Phase 2) ---
 WRITE_CHARS_PER_SOURCE = 1200   # most relevant passages per source sent to the writer (TPM limit)
 HERMES_CHARS_PER_SOURCE = 400   # most relevant passages per source shown to Hermes

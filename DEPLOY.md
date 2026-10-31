@@ -39,6 +39,9 @@ at a time and shows live progress; over 115 saved claims its partial/not-found d
 `EXTRACT_ORDER=provider_first` uses the page text Tavily already returns instead of downloading and parsing every page
 (6.6 CPU-seconds, about a minute on Render, for 15 pages; now near 0), and `EMBED_WARM_UP=true` loads the embedding
 model while the run plans and searches. Runs are still slower than on a laptop.
+With `EXTRACT_ORDER=provider_first` pages are not downloaded, so `FETCH_PUBLISH_DATES=true` (the default) reads
+only the first 64 KB of each page to find its publication date. Set it to `false` to skip those requests;
+sources then show "publication date unknown".
 
 **Memory is tight.** ONNX Runtime kept memory for every batch shape it embedded: verification took a run from about
 250 MB to 584 MB, over the 512 MB limit, and Render restarted the server ("This run was interrupted because the server

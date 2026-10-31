@@ -39,6 +39,7 @@ def _tavily(query: str) -> list[dict]:
             "snippet": r.get("content", ""),
             # Some pages are hundreds of KB of text; only EXTRACT_MAX_CHARS are kept after cleanup.
             "raw_content": (r.get("raw_content") or "")[: config.EXTRACT_MAX_CHARS * 4],
+            "published": r.get("published_date") or "",  # only some results carry it
         }
         for r in resp.get("results", [])
         if r.get("url")

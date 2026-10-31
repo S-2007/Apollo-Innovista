@@ -54,8 +54,17 @@ function describe(e: AnyEvent): Line {
       const u = n(e.data.unchecked)
       return {
         tag: 'VERIFY',
-        text: `${n(e.data.verified)} verified · ${n(e.data.partial)} partial · ${n(e.data.not_found)} not found${u ? ` · ${u} unchecked` : ''}`,
+        text: `${n(e.data.verified)} verified · ${n(e.data.partial)} partial${n(e.data.contradicted) ? ` · ${n(e.data.contradicted)} contradicted` : ''} · ${n(e.data.not_found)} not found${u ? ` · ${u} unchecked` : ''}`,
         tone: 'normal',
+      }
+    }
+    case 'quality': {
+      const checks = e.data.checks ?? []
+      const bad = checks.filter((c) => c.status !== 'pass')
+      return {
+        tag: 'QUALITY',
+        text: bad.length ? `${checks.length - bad.length}/${checks.length} checks passed · ${bad.map((c) => c.label.toLowerCase()).join('; ')}` : `all ${checks.length} quality checks passed`,
+        tone: bad.length ? 'warn' : 'good',
       }
     }
     case 'contradictions': {

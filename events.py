@@ -15,10 +15,11 @@ sends only these events. Each is {"type", "data", "ts"}; ts is epoch millisecond
   gaps_pending     {round, gaps}                  waiting for human approval of the gaps
   section_draft    {index, text}               text so far while the LLM writes a section (published live by
                                                  the node, not from a graph update); raw, before citation checks
-  section_written  {section, index, citations, not_found, write_failed, text}   text = final section   write_failed = every LLM failed;
+  section_written  {section, index, citations, not_found, partly_not_found, write_failed, text}   text = final section   write_failed = every LLM failed;
                                                      the section is NOT claimed to be "not found"
   report_written   {markdown}                  full report text, before claim verification
   verification     {verified, partial, contradicted, not_found, unchecked}   claim counts
+  quality          {overall, checks: [{id, label, status, detail}]}   research-quality checks before completion
   contradictions   {count, reviews, reviews_failed}   reviews = Hermes reviews run; contradictions
                                                      are only looked for in reviews that succeeded
   report_ready     {}
@@ -150,7 +151,9 @@ class EventConverter:
                     "section": s["question"],
                     "index": s["index"],
                     "citations": len(find_citations(s["text"])),
-                    "not_found": NOT_FOUND in s["text"].lower(),
+                    # not_found: no cited answer at all; partly_not_found: answered, but some point was not in the sources
+                    "not_found": not find_citations(s["text"]) and s["text"] != WRITE_FAILED,
+                    "partly_not_found": bool(find_citations(s["text"])) and NOT_FOUND in s["text"].lower(),
                     "write_failed": s["text"] == WRITE_FAILED,
                     "text": s["text"],
                 },
@@ -166,6 +169,9 @@ class EventConverter:
         for c in u.get("claims", []):
             counts[c["status"]] = counts.get(c["status"], 0) + 1
         return [make_event("verification", counts)]
+
+    def _quality_check(self, u: dict) -> list[dict]:
+        return [make_event("quality", {"overall": u["quality_overall"], "checks": u["quality"]})]
 
     # ------------------------------------------------------------ helpers
 

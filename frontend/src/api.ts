@@ -17,6 +17,7 @@ export type EventType =
   | 'report_written' // the full report text, before claim verification
   | 'claim_checked' // live: one more claim verified (progress)
   | 'verification'
+  | 'quality' // research-quality checks run before completion
   | 'contradictions'
   | 'report_ready'
   | 'warning' // non-terminal problem the run survived (backend extension, see README)
@@ -32,10 +33,11 @@ export interface EventDataMap {
   review: { round?: number; complete?: boolean; gaps?: string[] }
   gaps_pending: { round?: number; gaps?: string[] }
   section_draft: { index?: number; text?: string }
-  section_written: { section?: string; index?: number; citations?: number; not_found?: boolean; write_failed?: boolean; text?: string }
+  section_written: { section?: string; index?: number; citations?: number; not_found?: boolean; partly_not_found?: boolean; write_failed?: boolean; text?: string }
   report_written: { markdown?: string }
   claim_checked: { done?: number; total?: number; status?: string }
   verification: { verified?: number; partial?: number; contradicted?: number; not_found?: number; unchecked?: number }
+  quality: { overall?: string; checks?: QualityCheck[] }
   contradictions: { count?: number; reviews?: number; reviews_failed?: number }
   report_ready: Record<string, never>
   warning: { message?: string; details?: string[] }
@@ -53,7 +55,7 @@ export type AnyEvent = RunEvent | UnknownEvent
 
 const KNOWN = new Set<string>([
   'plan', 'search_started', 'search_results', 'search_done', 'search_failed', 'review', 'gaps_pending', 'section_draft', 'section_written', 'report_written', 'claim_checked',
-  'verification', 'contradictions', 'report_ready', 'warning', 'error', 'complete',
+  'verification', 'quality', 'contradictions', 'report_ready', 'warning', 'error', 'complete',
 ])
 
 export const isKnown = (e: AnyEvent): e is RunEvent => KNOWN.has(e.type)
@@ -92,6 +94,9 @@ export interface Source {
   status?: string
   question?: string
   extracted_by?: string // "trafilatura" | "tavily_raw" | "snippet only"
+  kind?: string // "primary" (original research / official) | "secondary"; rule-based from the URL; "" in older runs
+  published?: string // the page's own publication date (YYYY[-MM[-DD]]); "" = the page states none
+  retrieved_at?: number | null // research date: when Apollo read the page (epoch seconds); null in older runs
   cited?: boolean
   claims?: Partial<Record<ClaimStatus, number>>
 }
@@ -158,7 +163,8 @@ export interface SectionInfo {
   index: number
   question: string
   citations: number
-  not_found: boolean
+  not_found: boolean // no cited answer at all
+  partly_not_found?: boolean // answered, but some point was not in the sources
   write_failed?: boolean // every LLM failed: the section was not written (not a "not found")
   source_ids: string[]
 }
@@ -179,6 +185,17 @@ export interface Report {
   sections?: SectionInfo[]
   review_health?: ReviewHealth
   citation_check?: { citations: number; unique_cited: number; dangling: string[]; uncited_sources: number; sources: number }
+  quality?: QualityCheck[] // research-quality checks run before completion (empty in older runs)
+  quality_overall?: '' | 'passed' | 'passed_with_warnings' | 'failed'
+  duplicates?: { url: string; duplicate_of: string }[]
+  irrelevant?: { url: string; relevance: number }[] // pages dropped as not about their sub-question
+}
+
+export interface QualityCheck {
+  id: string
+  label: string
+  status: 'pass' | 'warn' | 'fail'
+  detail: string
 }
 
 /** Hermes reviews run / failed. Contradictions are only searched for in reviews that succeeded. */

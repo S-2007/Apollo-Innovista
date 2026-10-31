@@ -300,6 +300,17 @@ function Verified({ report, runId }: { report: Report; runId: string }) {
         </p>
         <div className="mt-2"><StackedBar parts={keys.map((k) => ({ value: counts[k], color: STATUS_COLOR[k], label: k }))} /></div>
         <Legend items={keys.map((k) => ({ color: STATUS_COLOR[k], label: k.replace('_', ' '), value: counts[k] }))} />
+        {(report.quality ?? []).length > 0 && (() => {
+          const q = report.quality ?? []
+          const open = q.filter((c) => c.status !== 'pass')
+          return (
+            <p className="mt-2 flex flex-wrap items-center gap-2 border-t border-hair pt-2 text-sm text-ink">
+              <Pill status={q.some((c) => c.status === 'fail') ? 'failed' : open.length ? 'warn' : 'done'} label={`${q.length - open.length}/${q.length} quality checks`} />
+              {open.length ? <span className="text-xs text-muted">Not passed: {open.map((c) => c.label.toLowerCase()).join('; ')}. Details at the end of the report.</span> : <span className="text-xs text-muted">All research-quality checks passed.</span>}
+              <button onClick={() => go('verification')} className="text-xs text-accent-ink underline underline-offset-2">Verification</button>
+            </p>
+          )
+        })()}
       </div>
       <div className="mt-6"><ReportView report={{ ...report, markdown: body(report.markdown) }} runId={runId} /></div>
     </>

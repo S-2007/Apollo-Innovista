@@ -90,7 +90,7 @@ def test_writer_sees_only_its_sections_findings(monkeypatch):
 
 
 def test_section_without_sources_says_not_found(monkeypatch):
-    monkeypatch.setattr(nodes, "web_search", fake_search(empty_for={"q two"}))
+    monkeypatch.setattr(nodes, "web_search", fake_search(empty_for={"q two", "q two research study"}))
     monkeypatch.setattr(nodes, "llm_chat", fake_llm(COMPLETE))
     final = run_research("topic", max_rounds=2, timeout_seconds=60)
 
