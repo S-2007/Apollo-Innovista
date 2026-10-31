@@ -82,19 +82,124 @@ export interface Source {
   snippet?: string
   section?: number
   status?: string
+  question?: string
+  extracted_by?: string // "trafilatura" | "tavily_raw" | "snippet only"
+  cited?: boolean
+  claims?: Partial<Record<ClaimStatus, number>>
 }
 
 export interface Claim {
   claim: string
   status: ClaimStatus
   evidence?: string
+  source_ids?: string[]
+}
+
+export interface Contradiction {
+  source_a: string
+  source_b: string
+  claim: string
+}
+
+export interface SectionInfo {
+  index: number
+  question: string
+  citations: number
+  not_found: boolean
+  source_ids: string[]
 }
 
 export interface Report {
+  topic?: string
+  status?: string
+  stop_reason?: string
   markdown: string
   sources: Source[]
   verification: Claim[]
+  contradictions?: Contradiction[]
   contradictions_html_path: string | null
+  plan?: string[]
+  rounds?: number
+  errors?: string[]
+  sections?: SectionInfo[]
+  citation_check?: { citations: number; unique_cited: number; dangling: string[]; uncited_sources: number; sources: number }
+}
+
+export interface Usage {
+  llm_calls: number
+  llm_failed: number
+  prompt_tokens: number
+  completion_tokens: number
+  llm_seconds: number
+  searches: number
+  searches_failed: number
+  search_seconds: number
+}
+
+export interface RunSummary {
+  run_id: string
+  topic: string
+  status: 'running' | 'awaiting_input' | 'complete' | 'failed' | 'rejected'
+  hitl: boolean
+  max_rounds: number
+  created_at: number
+  finished_at: number | null
+  rounds: number
+  stop_reason: string | null
+  sources: number
+  claims: Record<ClaimStatus, number>
+  contradictions: number
+  has_report: boolean
+  usage: Usage
+}
+
+export interface UsageRow {
+  name: string
+  calls: number
+  failed: number
+  seconds: number
+  prompt_tokens: number
+  completion_tokens: number
+  cost_usd?: number
+}
+
+export interface MeterCall {
+  kind: 'llm' | 'search'
+  ok: boolean
+  seconds: number
+  node: string
+  ts: number
+  provider?: string
+  model?: string
+  prompt_tokens?: number
+  completion_tokens?: number
+  query?: string
+  results?: number
+  error?: string
+}
+
+export interface Metrics {
+  summary: Usage
+  by_node: UsageRow[]
+  by_model: UsageRow[]
+  calls: MeterCall[]
+  stages: { stage: string; start: number; ms: number }[]
+  cost_usd: number | null
+  wall_ms: number
+}
+
+export interface SystemInfo {
+  keys: Record<string, boolean>
+  llm: { provider: string; groq_model: string; gemini_model: string; verify_chain: string[] }
+  limits: Record<string, number>
+  checks: {
+    env_example_committed: boolean
+    env_gitignored: boolean
+    env_tracked_by_git: boolean | null
+    cors_origins: string[]
+    demo_switch: number
+  }
+  secret_scan: { ran: boolean; files: number; findings: { file: string; line: number; kind: string; match: string }[] }
 }
 
 export interface DemoTopic {
@@ -142,6 +247,10 @@ export const resumeRun = (runId: string, action: ResumeAction, payload?: { sub_q
   request<{ ok: boolean }>(`/api/runs/${runId}/resume`, post(payload ? { action, payload } : { action }))
 
 export const getReport = (runId: string) => request<Report>(`/api/runs/${runId}/report`)
+
+export const listRuns = () => request<RunSummary[]>('/api/runs')
+export const getMetrics = (runId: string) => request<Metrics>(`/api/runs/${runId}/metrics`)
+export const getSystem = () => request<SystemInfo>('/api/system')
 
 export const getDemoTopics = () => request<DemoTopic[]>('/api/demo-topics')
 

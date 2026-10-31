@@ -304,3 +304,43 @@ A pinned name was chosen over the `-latest` aliases, which can change silently.
   "no conflicts" path was seen live; the map HTML itself was verified in Phase 2.1.
 - The Phase 2 verifier marked a "…not found in sources [S3]…" sentence as verified (lenient); frozen logic, recorded here.
 - Runs live in memory (lost on restart); localhost only; no auth, no database (as specified).
+
+
+## Phase 3.1: 13-page navigation with real data (2026-10-31)
+
+**Asked:** sidebar navigation with 13 working sections: Dashboard, New Research, Analytics, Agent Orchestration,
+Research Planning, Claims & Evidence, Contradictions, Source Intelligence, Research Gaps, Security, Cost & Execution,
+Verification, Final Reports.
+
+**Data behind each page (nothing is sample data):**
+- New backend endpoints: `GET /api/runs` (run list with counts), `GET /api/runs/{id}/metrics` (usage meter and stage
+  timings), `GET /api/system` (key presence, .env checks, secret scan of tracked files, limits). `/report` now also
+  returns `plan`, `rounds`, `errors`, `sections` and `citation_check`.
+- `metering.py`: `llm.chat` records every attempt (provider, model, tokens as the provider reports them, time, error);
+  the API's search wrapper records every query. Calls are filed by run and graph node using LangGraph's own config
+  (`thread_id` = run id), so concurrent runs do not mix.
+- Finished runs are saved to `output/runs/<id>/run.json` and reloaded at startup, so history, analytics and reports
+  survive a restart.
+- Change to Phase 1 code: `llm.py` only (metering hook; behaviour unchanged). Graph, tools and verifier untouched.
+
+**Checks**
+1. `pytest` → 62 passed (3 new: meter attribution per run/node with no invented cost; run list + reload from disk;
+   `/api/system` never returns key values).
+2. `npm run build` (tsc strict + vite) passes.
+3. Live run, Topic B, Groq, demo switch 2: 21 sources, 17 claims (6 verified, 10 partial, 1 not found), 50 LLM calls /
+   28.4k tokens metered, 8 searches with the 1 simulated failure; 30 inline citations, 0 dangling. All 13 pages
+   opened in the browser with this run; 375 px width has no horizontal scroll.
+4. Restarting the server kept both runs (list, report, metrics).
+
+**Bugs found while checking (fixed)**
+- Stage timings treated events as stage starts; events fire when a node finishes, so planning showed 0 s. Now each
+  event closes the stage it names; stages add up to the wall time (150 s run: 2.2 + 25.4 + 30.8 + 16.5 + 4.7 + 15.6 + 54.7).
+- "Inline citations" showed distinct ids (`find_citations` de-duplicates); it now counts every occurrence.
+- Long topics overflowed into the next column in the Dashboard and Analytics tables.
+- A run-list error from a backend restart stayed on screen after the backend came back.
+
+**Known gaps**
+- A Gemini run during testing got 503 "high demand" on 15 of 16 calls; it still completed, with 0 claims. The Cost
+  page made the cause visible. Groq was used for the check above.
+- No live run produced a contradiction, so the Contradictions page was seen only in its empty state live.
+- Runs made before metering show 0 tokens/searches.

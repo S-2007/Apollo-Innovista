@@ -14,7 +14,10 @@ its own quota. gpt-oss models are called with reasoning_effort="low": their hidd
 reasoning tokens count against Groq's token limits.
 """
 
+import time
+
 import config
+import metering
 from tools.retry_policy import ConfigError, with_retries
 
 _clients: dict[str, object] = {}
@@ -50,11 +53,28 @@ def _get_client(provider: str):
 def chat(
     system: str, user: str, temperature: float = 0.2, model: str | None = None, provider: str | None = None
 ) -> str:
-    """Send one system+user prompt and return the model's text reply."""
+    """Send one system+user prompt and return the model's text reply.
+
+    Every attempt (including failed ones) is recorded in the usage meter, with token counts
+    as reported by the provider."""
     provider = provider or config.LLM_PROVIDER
+    name = model or (config.GROQ_MODEL if provider == "groq" else config.GEMINI_MODEL)
+    started = time.monotonic()
+    try:
+        text, prompt_tokens, completion_tokens = _call(provider, name, system, user, temperature)
+    except Exception as exc:
+        metering.record("llm", False, time.monotonic() - started, provider=provider, model=name,
+                        error=f"{type(exc).__name__}: {str(exc)[:160]}")
+        raise
+    metering.record("llm", True, time.monotonic() - started, provider=provider, model=name,
+                    prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
+    return text
+
+
+def _call(provider: str, name: str, system: str, user: str, temperature: float) -> tuple[str, int, int]:
+    """One provider call: (reply text, prompt tokens, completion tokens)."""
     client = _get_client(provider)
     if provider == "groq":
-        name = model or config.GROQ_MODEL
         extra = {"reasoning_effort": "low"} if name.startswith("openai/gpt-oss") else {}
         resp = client.chat.completions.create(
             model=name,
@@ -62,13 +82,18 @@ def chat(
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             **extra,
         )
-        return resp.choices[0].message.content or ""
+        usage = getattr(resp, "usage", None)
+        return (resp.choices[0].message.content or "",
+                getattr(usage, "prompt_tokens", 0) or 0, getattr(usage, "completion_tokens", 0) or 0)
 
     from google.genai import types
 
     resp = client.models.generate_content(
-        model=model or config.GEMINI_MODEL,
+        model=name,
         contents=user,
         config=types.GenerateContentConfig(system_instruction=system, temperature=temperature),
     )
-    return resp.text or ""
+    usage = getattr(resp, "usage_metadata", None)
+    # Gemini bills thinking tokens as output, so they are counted with the completion.
+    completion = (getattr(usage, "candidates_token_count", 0) or 0) + (getattr(usage, "thoughts_token_count", 0) or 0)
+    return resp.text or "", getattr(usage, "prompt_token_count", 0) or 0, completion

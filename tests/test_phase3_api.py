@@ -259,3 +259,49 @@ def test_contradictions_route(client):
     _wait(client, run_id, lambda s: s["status"] not in api.ACTIVE)
     resp = client.get(f"/api/runs/{run_id}/contradictions")
     assert resp.status_code == 200 and resp.headers["content-type"].startswith("text/html")
+
+
+# ---------------------------------------------------------------- run list, metrics, persistence, system
+
+
+def test_usage_meter_attributes_calls_to_run_and_node(client, monkeypatch):
+    import llm
+
+    fake = fake_llm(COMPLETE)
+    monkeypatch.setattr(llm, "_call", lambda provider, name, system, user, temperature: (fake(system, user, temperature), 100, 20))
+    monkeypatch.setattr(nodes, "llm_chat", llm.chat)  # the real wrapper, so every call is metered
+    monkeypatch.setattr(api, "_real_search", fake_search())
+    monkeypatch.setattr(nodes, "web_search", api._metered_search)
+    run_id = _start(client)
+    _wait(client, run_id, lambda s: s["status"] not in api.ACTIVE)
+
+    m = client.get(f"/api/runs/{run_id}/metrics").json()
+    nodes_seen = {row["name"] for row in m["by_node"]}
+    assert {"apollo_plan", "athena_search", "hermes_review"} <= nodes_seen
+    assert m["summary"]["llm_calls"] >= 3 and m["summary"]["prompt_tokens"] == 100 * m["summary"]["llm_calls"]
+    assert m["summary"]["searches"] == len(PLAN)
+    assert m["cost_usd"] is None  # no PRICE_* configured: no invented cost
+    assert [s["stage"] for s in m["stages"]][:2] == ["planning", "searching"]
+
+
+def test_run_list_and_reload_from_disk(client):
+    run_id = _start(client)
+    _wait(client, run_id, lambda s: s["status"] not in api.ACTIVE)
+    row = client.get("/api/runs").json()[0]
+    assert row["run_id"] == run_id and row["has_report"] and row["sources"] > 0
+    report = client.get(f"/api/runs/{run_id}/report").json()
+    assert report["plan"] == PLAN and report["citation_check"]["dangling"] == []
+
+    api._runs.clear()  # simulate a server restart
+    api._load_saved()
+    assert client.get(f"/api/runs/{run_id}/report").json()["markdown"] == report["markdown"]
+    assert client.get(f"/api/runs/{run_id}").json()["status"] == "complete"
+
+
+def test_system_reports_key_presence_never_values(client, monkeypatch):
+    import config
+
+    monkeypatch.setattr(config, "GROQ_API_KEY", "gsk_secretvalue_should_not_leak_1234567")
+    body = client.get("/api/system").text
+    assert "secretvalue" not in body
+    assert json.loads(body)["keys"]["GROQ_API_KEY"] is True

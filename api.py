@@ -10,8 +10,14 @@ to the browser as Server-Sent Events. Endpoints:
   GET  /api/runs/{id}/report         report markdown, sources, verification, conflicts
   GET  /api/runs/{id}/report.md      download the exported Markdown report
   GET  /api/runs/{id}/contradictions        the pyvis contradiction map (text/html)
+  GET  /api/runs                     every run (live and saved), newest first, with summary counts
+  GET  /api/runs/{id}/metrics        LLM calls, tokens, searches and stage timings for one run
+  GET  /api/system                   configuration and security posture (key PRESENCE only, never values)
   GET  /api/demo-topics              demo topics from demo/topics.md: [{id, title, topic, note}]
   POST /api/cache/clear              forget finished runs and cached embeddings
+
+Finished runs are saved to output/runs/<id>/run.json (events, final state, usage meter)
+and reloaded at startup, so history, analytics and reports survive a server restart.
 
 Each run lives in an in-memory registry guarded by one lock: its event list,
 status, pending interrupt, and a queue the graph thread waits on for the
@@ -35,6 +41,7 @@ import os
 import queue
 import re
 import shutil
+import subprocess
 import threading
 import time
 import uuid
@@ -48,13 +55,14 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 import config
+import metering
 from events import EventConverter, make_event, warning_event
 from export import write_report
 from graph import nodes
 from graph.state import initial_state
 from graph.workflow import build_graph
 from tools import passages
-from tools.text import find_citations
+from tools.text import CITE, NOT_FOUND, find_citations
 from viz.contradictions import write_contradiction_map
 
 VITE_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]  # the Vite dev server only
@@ -74,8 +82,10 @@ app.add_middleware(CORSMiddleware, allow_origins=VITE_ORIGINS, allow_methods=["*
 
 
 class Run:
-    def __init__(self, topic: str, max_rounds: int, hitl: bool) -> None:
-        self.id = uuid.uuid4().hex
+    def __init__(self, topic: str, max_rounds: int, hitl: bool, run_id: str | None = None) -> None:
+        self.id = run_id or uuid.uuid4().hex
+        self.created_at = int(time.time() * 1000)
+        self.finished_at: int | None = None
         self.topic, self.max_rounds, self.hitl = topic, max_rounds, hitl
         self.status = "running"          # running | awaiting_input | complete | failed | rejected
         self.events: list[dict] = []
@@ -111,6 +121,45 @@ def _finish(run: Run, status: str, data: dict) -> None:
         run.events.append(make_event("complete", {"status": "complete" if status == "complete" else "failed", **data}))
         run.status = status
         run.pending = None
+        run.finished_at = int(time.time() * 1000)
+    _save(run)
+
+
+# ---------------------------------------------------------------- persistence
+
+
+def _save(run: Run) -> None:
+    """Write a finished run to output/runs/<id>/run.json. A failed write never fails the run."""
+    with _lock:
+        doc = {
+            "id": run.id, "topic": run.topic, "max_rounds": run.max_rounds, "hitl": run.hitl,
+            "status": run.status, "created_at": run.created_at, "finished_at": run.finished_at,
+            "events": list(run.events), "state": run.state, "calls": metering.calls(run.id),
+        }
+    try:
+        run.out_dir.mkdir(parents=True, exist_ok=True)
+        (run.out_dir / "run.json").write_text(json.dumps(doc), encoding="utf-8")
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def _load_saved() -> None:
+    """Reload finished runs saved by earlier server processes."""
+    if not RUNS_DIR.exists():
+        return
+    for path in RUNS_DIR.glob("*/run.json"):
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+            run = Run(doc["topic"], doc["max_rounds"], doc["hitl"], run_id=doc["id"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue  # a damaged file is skipped, not fatal
+        run.status, run.events, run.state = doc.get("status", "failed"), doc.get("events", []), doc.get("state")
+        run.created_at, run.finished_at = doc.get("created_at", 0), doc.get("finished_at")
+        if run.status in ACTIVE:  # saved mid-run by an older server: it can never finish now
+            run.status = "failed"
+        metering.load(run.id, doc.get("calls", []))
+        with _lock:
+            _runs.setdefault(run.id, run)
 
 
 # ---------------------------------------------------------------- graph thread
@@ -185,8 +234,20 @@ def _demo_search(query: str, errors: list[str]) -> list[dict]:
 
 
 _real_search = nodes.web_search
-if DEMO_FAIL_SUBQUESTION:
-    nodes.web_search = _demo_search
+
+
+def _metered_search(query: str, errors: list[str]) -> list[dict]:
+    """Athena's search, timed and recorded in the usage meter (one record per query)."""
+    before, started = len(errors), time.monotonic()
+    results = (_demo_search if DEMO_FAIL_SUBQUESTION else _real_search)(query, errors)
+    new_errors = [e for e in errors[before:] if e.startswith("search[")]
+    metering.record("search", bool(results) or not new_errors, time.monotonic() - started,
+                    query=query, results=len(results), error=new_errors[-1][:200] if new_errors else "")
+    return results
+
+
+nodes.web_search = _metered_search
+_load_saved()
 
 
 # ---------------------------------------------------------------- endpoints
@@ -326,6 +387,28 @@ def get_report(run_id: str) -> dict:
         ],
         "contradictions": state["contradictions"],
         "contradictions_html_path": f"/api/runs/{run_id}/contradictions" if state["contradictions"] else None,
+        "plan": state["plan"],
+        "rounds": state["round_no"],
+        "errors": state["errors"],
+        "sections": [
+            {"index": s["index"] + 1, "question": s["question"], "citations": len(find_citations(s["text"])),
+             "not_found": NOT_FOUND in s["text"].lower(), "source_ids": s["source_ids"]}
+            for s in sorted(state["sections"], key=lambda s: s["index"])
+        ],
+        "citation_check": _citation_check(state),
+    }
+
+
+def _citation_check(state: dict) -> dict:
+    """Does every [S#] in the report point at a retrieved source? (same rule as scripts/check_citations.py)"""
+    known = {f["id"] for f in state["findings"]}
+    cited = find_citations(state["report"])
+    return {
+        "citations": len(CITE.findall(state["report"])),  # every inline occurrence
+        "unique_cited": len(set(cited)),
+        "dangling": sorted(set(cited) - known),
+        "uncited_sources": len(known - set(cited)),
+        "sources": len(known),
     }
 
 
@@ -343,6 +426,177 @@ def contradictions_html(run_id: str) -> HTMLResponse:
     if not path.exists():
         raise HTTPException(409, "the contradiction map is not ready yet")
     return HTMLResponse(path.read_text(encoding="utf-8"))
+
+
+def _summary(run: Run) -> dict:
+    """One row of the run list: identity, timing and the headline counts."""
+    with _lock:
+        state, events, status = run.state, list(run.events), run.status
+    claims = {k: 0 for k in ("verified", "partial", "not_found", "unchecked")}
+    for c in (state or {}).get("claims", []):
+        claims[c["status"]] = claims.get(c["status"], 0) + 1
+    done = next((e["data"] for e in events if e["type"] == "complete"), {})
+    return {
+        "run_id": run.id, "topic": run.topic, "status": status, "hitl": run.hitl, "max_rounds": run.max_rounds,
+        "created_at": run.created_at, "finished_at": run.finished_at,
+        "rounds": state["round_no"] if state else max((e["data"].get("round", 0) for e in events if e["type"] == "search_started"), default=0),
+        "stop_reason": state["stop_reason"] if state else done.get("stop_reason"),
+        "sources": len(state["findings"]) if state else sum(e["data"].get("result_count", 0) for e in events if e["type"] == "search_done"),
+        "claims": claims,
+        "contradictions": len(state["contradictions"]) if state else 0,
+        "has_report": state is not None,
+        "usage": metering.summary(metering.calls(run.id)),
+    }
+
+
+@app.get("/api/runs")
+def list_runs() -> list[dict]:
+    with _lock:
+        runs = list(_runs.values())
+    return sorted((_summary(r) for r in runs), key=lambda r: r["created_at"], reverse=True)
+
+
+# Events are emitted when a graph node FINISHES, so each one closes the stage it names.
+STAGE_ENDED_BY = {"plan": "planning", "search_done": "searching", "search_failed": "searching", "review": "reviewing",
+                  "section_written": "writing", "verification": "verifying", "contradictions": "finishing",
+                  "report_ready": "finishing"}
+
+
+def _stages(events: list[dict], start_ms: int) -> list[dict]:
+    """Wall-clock time per stage from the event timestamps. A human pause is its own stage."""
+    out: list[dict] = []
+    prev, waiting = start_ms, False
+    for e in events:
+        kind = e["type"]
+        if waiting and (kind in STAGE_ENDED_BY or kind == "search_started"):
+            name, waiting = "waiting for you", False  # the first event after a pause ends the pause
+        elif kind == "gaps_pending":
+            name, waiting = "reviewing", True
+        else:
+            name = STAGE_ENDED_BY.get(kind)
+            if name is None:
+                continue  # e.g. search_started: its time counts towards the search it starts
+            waiting = kind == "plan" and bool(e["data"].get("awaiting_approval"))
+        if out and out[-1]["stage"] == name:
+            out[-1]["ms"] += e["ts"] - prev
+        else:
+            out.append({"stage": name, "start": prev, "ms": e["ts"] - prev})
+        prev = e["ts"]
+    return out
+
+
+def _price(provider: str) -> tuple[float, float] | None:
+    """USD per 1M (input, output) tokens from .env (PRICE_<PROVIDER>_INPUT_PER_M / _OUTPUT_PER_M), or None."""
+    try:
+        return (float(os.getenv(f"PRICE_{provider.upper()}_INPUT_PER_M", "")),
+                float(os.getenv(f"PRICE_{provider.upper()}_OUTPUT_PER_M", "")))
+    except ValueError:
+        return None
+
+
+@app.get("/api/runs/{run_id}/metrics")
+def run_metrics(run_id: str) -> dict:
+    run = _get(run_id)
+    with _lock:
+        events = list(run.events)
+    calls = metering.calls(run.id)
+    by_node: dict[str, dict] = {}
+    by_model: dict[str, dict] = {}
+    for c in calls:
+        model = f'{c.get("provider", "")}:{c.get("model", "")}' if c["kind"] == "llm" else "web search"
+        for key, table in ((c["node"] or "(outside graph)", by_node), (model, by_model)):
+            row = table.setdefault(key, {"name": key, "calls": 0, "failed": 0, "seconds": 0.0, "prompt_tokens": 0, "completion_tokens": 0})
+            row["calls"] += 1
+            row["failed"] += not c["ok"]
+            row["seconds"] = round(row["seconds"] + c["seconds"], 3)
+            row["prompt_tokens"] += c.get("prompt_tokens") or 0
+            row["completion_tokens"] += c.get("completion_tokens") or 0
+    cost, priced = 0.0, True
+    for row in by_model.values():
+        if row["name"] == "web search":
+            continue
+        price = _price(row["name"].split(":", 1)[0])
+        if price is None:
+            priced = False
+            continue
+        row["cost_usd"] = round(row["prompt_tokens"] / 1e6 * price[0] + row["completion_tokens"] / 1e6 * price[1], 6)
+        cost += row["cost_usd"]
+    return {
+        "summary": metering.summary(calls),
+        "by_node": sorted(by_node.values(), key=lambda r: -r["seconds"]),
+        "by_model": sorted(by_model.values(), key=lambda r: -r["calls"]),
+        "calls": calls,
+        "stages": _stages(events, run.created_at),
+        "cost_usd": round(cost, 6) if priced and any(r["name"] != "web search" for r in by_model.values()) else None,
+        "wall_ms": (run.finished_at or int(time.time() * 1000)) - run.created_at,
+    }
+
+
+# Strings that look like real keys. A hit is reported masked (first 6 characters only).
+KEY_PATTERNS = [
+    ("Groq key", re.compile(r"gsk_[A-Za-z0-9]{20,}")),
+    ("Tavily key", re.compile(r"tvly-[A-Za-z0-9-]{16,}")),
+    ("Google key", re.compile(r"AIza[0-9A-Za-z_-]{30,}")),
+    ("Key assignment", re.compile(r"(?i)\b\w*API_KEY\w*\s*[:=]\s*[\"'][^\"'\s]{16,}[\"']")),
+]
+SKIP_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".woff", ".woff2", ".pdf"}
+
+
+def _git(*args: str) -> str | None:
+    try:
+        out = subprocess.run(["git", *args], cwd=Path(__file__).parent, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return out.stdout if out.returncode == 0 else None
+
+
+def _secret_scan() -> dict:
+    """Scan git-tracked files for strings that look like API keys."""
+    tracked = _git("ls-files")
+    if tracked is None:
+        return {"ran": False, "files": 0, "findings": []}
+    root, findings, files = Path(__file__).parent, [], 0
+    for name in tracked.splitlines():
+        if Path(name).suffix.lower() in SKIP_SUFFIXES or name.endswith("package-lock.json"):
+            continue
+        try:
+            text = (root / name).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        files += 1
+        for no, line in enumerate(text.splitlines(), 1):
+            for kind, pattern in KEY_PATTERNS:
+                m = pattern.search(line)
+                if m:
+                    findings.append({"file": name, "line": no, "kind": kind, "match": m.group(0)[:6] + "…"})
+    return {"ran": True, "files": files, "findings": findings[:50]}
+
+
+@app.get("/api/system")
+def system() -> dict:
+    """Configuration and security posture. Keys are reported as present/absent, never as values."""
+    root = Path(__file__).parent
+    ignore = root / ".gitignore"
+    ignored = [g.strip() for g in ignore.read_text(encoding="utf-8").splitlines()] if ignore.exists() else []
+    tracked_env = _git("ls-files", ".env")
+    return {
+        "keys": {name: bool(getattr(config, name)) for name in ("TAVILY_API_KEY", "SERPER_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY")},
+        "llm": {"provider": config.LLM_PROVIDER, "groq_model": config.GROQ_MODEL, "gemini_model": config.GEMINI_MODEL,
+                "verify_chain": [f"{p}:{m}" for p, m in config.VERIFY_CHAIN]},
+        "limits": {"max_rounds": MAX_ROUNDS_LIMIT, "timeout_seconds": config.TIMEOUT_SECONDS,
+                   "search_max_retries": config.SEARCH_MAX_RETRIES, "llm_max_retries": config.LLM_MAX_RETRIES,
+                   "request_timeout_seconds": config.REQUEST_TIMEOUT_SECONDS, "recursion_limit": config.GRAPH_RECURSION_LIMIT,
+                   "max_gap_queries": config.MAX_GAP_QUERIES, "verify_max_claims": config.VERIFY_MAX_CLAIMS,
+                   "hitl_wait_seconds": HITL_WAIT_SECONDS, "max_page_bytes": config.MAX_PAGE_BYTES},
+        "checks": {
+            "env_example_committed": (root / ".env.example").exists(),
+            "env_gitignored": ".env" in ignored,
+            "env_tracked_by_git": None if tracked_env is None else bool(tracked_env.strip()),
+            "cors_origins": VITE_ORIGINS,
+            "demo_switch": DEMO_FAIL_SUBQUESTION,
+        },
+        "secret_scan": _secret_scan(),
+    }
 
 
 @app.get("/api/demo-topics")
@@ -375,6 +629,7 @@ def clear_cache() -> dict:
         done = [rid for rid, r in _runs.items() if r.status not in ACTIVE]
         for rid in done:
             del _runs[rid]
+            metering.forget(rid)
     removed = 0
     if RUNS_DIR.exists():
         for d in RUNS_DIR.iterdir():

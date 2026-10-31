@@ -70,8 +70,8 @@ START → Apollo plans → (you approve/edit) → Athena searches → Hermes rev
 | `graph/` | LangGraph state, nodes (agents), workflow |
 | `tools/` | search, page extraction, passage selection, retry policy, text helpers |
 | `verify/`, `viz/`, `export.py` | claim verification, contradiction map, Markdown export |
-| `api.py`, `events.py` | FastAPI backend and event conversion |
-| `frontend/` | "Mission Control" UI: React 18 + Vite + TypeScript (strict) + Tailwind 4; 6 component files |
+| `api.py`, `events.py`, `metering.py` | FastAPI backend, event conversion, per-run usage meter (LLM calls, tokens, searches) |
+| `frontend/` | "Mission Control" UI: React 18 + Vite + TypeScript (strict) + Tailwind 4; sidebar with 13 pages (`src/pages/`) |
 | `demo/topics.md`, `DEMO.md` | demo topics and the 2-minute demo script |
 | `PHASE_LOG.md` | what was built and verified in each phase, with known gaps |
 
@@ -87,7 +87,10 @@ START → Apollo plans → (you approve/edit) → Athena searches → Hermes rev
 - **The verifier can be lenient**, especially when the same model family wrote the text. The Verification tab shows
   the matched source sentence so a person can check.
 - **Source quality.** Social-media pages and off-topic results are not filtered out.
-- **Local only.** In-memory runs (lost on restart), no authentication, no database, CORS for the Vite dev origin only.
+- **Local only.** Finished runs are saved as JSON files in `output/runs/` (no database), no authentication, CORS for the
+  Vite dev origin only. A run that is still going when the server stops is lost.
+- **Cost is shown in tokens.** A dollar estimate appears only if you set `PRICE_<PROVIDER>_INPUT_PER_M` /
+  `_OUTPUT_PER_M` in `.env`; prices are not built in because free tiers and prices change.
 
 ## Future ideas
 
