@@ -24,11 +24,12 @@ interface LiveDoc {
   sections: Map<number, SectionState>
   markdown: string | null // full report text (before verification)
   verifying: boolean
+  checked: { done: number; total: number } | null // claim verification progress
 }
 
 /** Fold the event stream into what the document should show right now. */
 function build(events: AnyEvent[]): LiveDoc {
-  const doc: LiveDoc = { plan: [], sources: [], sourcesByQuery: new Map(), searching: new Set(), hits: new Map(), sections: new Map(), markdown: null, verifying: false }
+  const doc: LiveDoc = { plan: [], sources: [], sourcesByQuery: new Map(), searching: new Set(), hits: new Map(), sections: new Map(), checked: null, markdown: null, verifying: false }
   for (const e of events) {
     if (!isKnown(e)) continue
     switch (e.type) {
@@ -62,6 +63,9 @@ function build(events: AnyEvent[]): LiveDoc {
             draft: false,
             final: { citations: e.data.citations ?? 0, notFound: !!e.data.not_found, writeFailed: !!e.data.write_failed },
           })
+        break
+      case 'claim_checked':
+        doc.checked = { done: Math.max(doc.checked?.done ?? 0, e.data.done ?? 0), total: e.data.total ?? 0 }
         break
       case 'report_written':
         doc.markdown = e.data.markdown ?? null
@@ -124,7 +128,7 @@ export default function LiveReport() {
   const elapsed = start ? Math.max(0, Math.floor(((d.endMs ?? now) - start) / 1000)) : 0
   const stage = stageOf(events, d.finished, d.hermes === 'active')
   const byId = new Map(doc.sources.map((s) => [s.id, s]))
-  const status = reconnecting && !d.finished ? 'Reconnecting to the server…' : d.status === 'failed' ? 'Stopped' : d.finished ? 'Complete' : d.planPending ? 'Waiting for your approval' : d.gapsPending ? 'Waiting for your approval' : `${STAGES[stage]}…`
+  const status = reconnecting && !d.finished ? 'Reconnecting to the server…' : d.status === 'failed' ? 'Stopped' : d.finished ? 'Complete' : d.planPending ? 'Waiting for your approval' : d.gapsPending ? 'Waiting for your approval' : stage === 4 && doc.checked ? `Verifying ${doc.checked.done}/${doc.checked.total}…` : `${STAGES[stage]}…`
 
   return (
     <div>
@@ -163,7 +167,17 @@ export default function LiveReport() {
             <Verified report={report} runId={runId} />
           ) : doc.markdown ? (
             <>
-              <p className="mt-3 flex items-center gap-2 text-xs text-muted" role="status"><Pill status="working" label="verifying claims" />Full text is ready; each claim is being checked against its source.</p>
+              <div className="mt-3" role="status">
+                <p className="flex flex-wrap items-center gap-2 text-xs text-muted">
+                  <Pill status="working" label={doc.checked ? `verifying ${doc.checked.done}/${doc.checked.total}` : 'verifying claims'} />
+                  Full text is ready to read; each claim is being checked against its source.
+                </p>
+                {doc.checked && doc.checked.total > 0 && (
+                  <div className="mt-2 h-1.5 w-full max-w-sm overflow-hidden bg-surface-2" aria-hidden="true">
+                    <div className="h-full bg-accent-strong transition-[width] duration-300" style={{ width: `${(doc.checked.done / doc.checked.total) * 100}%` }} />
+                  </div>
+                )}
+              </div>
               <div className="mt-6"><ReportView report={partial(doc.markdown, doc.sources)} runId={runId} toolbar={false} /></div>
             </>
           ) : (

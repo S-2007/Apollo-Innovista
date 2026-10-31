@@ -97,6 +97,7 @@ EMBED_TIMEOUT_SECONDS = 120       # a stuck embedding call raises instead of han
 VERIFY_PARTIAL_SIM = 0.5        # cosine similarity for "partial": the source discusses the claim
 VERIFY_TOP_K = 5               # best-matching source sentences shown to the verifier LLM
 VERIFY_MAX_CLAIMS = 40          # cap on LLM verification calls per report; the rest are "unchecked"
+VERIFY_WORKERS = _int("VERIFY_WORKERS", 4)  # claims checked at the same time (each mostly waits for the LLM)
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "output")
 
 # --- Accounts (web app login) ---

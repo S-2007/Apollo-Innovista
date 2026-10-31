@@ -71,6 +71,8 @@ function describe(e: AnyEvent): Line {
       return { tag: 'HITS', text: `${(e.data.results ?? []).length} results · ${e.data.query ?? ''}`, tone: 'normal' }
     case 'section_draft':
       return { tag: 'DRAFT', text: `section ${n(e.data.index) + 1} being written`, tone: 'normal' }
+    case 'claim_checked':
+      return { tag: 'VERIFY', text: `claim ${n(e.data.done)}/${n(e.data.total)} checked`, tone: 'normal' }
     case 'report_written':
       return { tag: 'WRITE', text: 'report text ready; verifying claims', tone: 'good' }
     case 'report_ready':
@@ -110,7 +112,8 @@ export default function ProgressFeed({ events }: { events: AnyEvent[] }) {
 
   if (events.length === 0) return null
   const t0 = Math.min(...events.map((e) => toMs(e.ts)))
-  const shown = events.filter((e) => e.type !== 'section_draft') // drafts stream several times a second
+  // drafts stream several times a second and claim checks once per claim: the summary lines cover them
+  const shown = events.filter((e) => e.type !== 'section_draft' && e.type !== 'claim_checked')
 
   return (
     <section aria-label="Event log" className="rounded-sm border border-hair bg-surface">

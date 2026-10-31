@@ -390,3 +390,13 @@ def test_stream_resumes_after_last_event_id_query(client):
             if line.startswith("data: "):
                 resumed.append(json.loads(line[6:]))
     assert resumed == events[3:]  # nothing repeated, nothing missed
+
+
+def test_verification_progress_reaches_the_stream(client):
+    events = _sse_events(client, _start(client))
+    progress = [e["data"] for e in events if e["type"] == "claim_checked"]
+    total = next(e["data"] for e in events if e["type"] == "verification")
+    assert progress and progress[-1]["total"] == sum(total.values())  # one per checked claim
+    assert sorted(p["done"] for p in progress) == list(range(1, len(progress) + 1))
+    types = [e["type"] for e in events]
+    assert types.index("report_written") < types.index("claim_checked") < types.index("verification")

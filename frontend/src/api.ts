@@ -15,6 +15,7 @@ export type EventType =
   | 'section_draft' // live: a section's text while the LLM writes it (raw, before citation checks)
   | 'section_written'
   | 'report_written' // the full report text, before claim verification
+  | 'claim_checked' // live: one more claim verified (progress)
   | 'verification'
   | 'contradictions'
   | 'report_ready'
@@ -33,6 +34,7 @@ export interface EventDataMap {
   section_draft: { index?: number; text?: string }
   section_written: { section?: string; index?: number; citations?: number; not_found?: boolean; write_failed?: boolean; text?: string }
   report_written: { markdown?: string }
+  claim_checked: { done?: number; total?: number; status?: string }
   verification: { verified?: number; partial?: number; not_found?: number; unchecked?: number }
   contradictions: { count?: number; reviews?: number; reviews_failed?: number }
   report_ready: Record<string, never>
@@ -50,7 +52,7 @@ export type UnknownEvent = { type: string; data: Record<string, unknown>; ts: nu
 export type AnyEvent = RunEvent | UnknownEvent
 
 const KNOWN = new Set<string>([
-  'plan', 'search_started', 'search_results', 'search_done', 'search_failed', 'review', 'gaps_pending', 'section_draft', 'section_written', 'report_written',
+  'plan', 'search_started', 'search_results', 'search_done', 'search_failed', 'review', 'gaps_pending', 'section_draft', 'section_written', 'report_written', 'claim_checked',
   'verification', 'contradictions', 'report_ready', 'warning', 'error', 'complete',
 ])
 

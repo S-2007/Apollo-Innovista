@@ -574,3 +574,18 @@ the server…".
 `?last_event_id=` with nothing repeated or missed). Simulated on a temporary database: killing the backend mid-run showed
 "reconnecting…" after ~45 s with no error; restarting it showed the interrupted message. Not yet seen on Render.
 **Root cause on Render still to confirm:** its Events tab shows whether the restart was "Ran out of memory".
+
+## Phase 3.15: faster claim verification with live progress (2026-10-31)
+
+**Reported:** writing is fine now, but verification takes very long.
+**Measured (Render run "What is AI?"):** report text at 57 s, verification done at 258 s. 33 LLM calls ran one after
+another (~102 s, Gemini ~3 s each, a few 27–30 s); the rest was embedding on 0.1 CPU.
+**Change:** `verify_report` checks `VERIFY_WORKERS` (4) claims at a time in copied contexts (so the usage meter and
+live events still know the run); one embedding batch up front; the shared model chain drops a spent model once even
+with concurrent claims (lock). Each finished claim publishes `claim_checked {done, total, status}`; the Live Report
+shows "Verifying 7/17" with a progress bar. Render: `VERIFY_MAX_SENTENCES` 30 → 12.
+**Measured:** same saved 17-claim report, real LLM (Groq spent, so Gemini): 98.2 s sequential vs 46.6 s with 4 workers,
+same status for 17/17 claims. Over 115 saved claims, 12 candidate sentences per source instead of 30: 2,688 vs 6,594
+sentences embedded (21,397 with no limit), same partial/not-found decision for 115/115.
+**Checks:** `pytest` 103 passed (new: parallel checks keep order and drop a spent model once; progress per claim;
+progress reaches the SSE stream between report_written and verification).
