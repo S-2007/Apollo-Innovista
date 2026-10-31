@@ -44,7 +44,7 @@ const ICON: Record<PageKey, string> = {
 
 function Icon({ d }: { d: string }) {
   return (
-    <svg viewBox="0 0 16 16" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 16 16" className="nav-icon h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d={d} />
     </svg>
   )
@@ -74,7 +74,7 @@ function Sidebar({ page, onNavigate }: { page: PageKey; onNavigate: () => void }
                 aria-current={active ? 'page' : undefined}
                 className={`relative flex items-center gap-3 px-5 py-[7px] text-[13.5px] ${active ? 'bg-accent/10 font-medium text-ink' : 'text-muted hover:bg-surface-2 hover:text-ink'}`}
               >
-                {active && <span className="absolute inset-y-0 left-0 w-[3px] bg-accent-strong" aria-hidden="true" />}
+                {active && <span className="nav-marker absolute inset-y-0 left-0 w-[3px] bg-accent-strong" aria-hidden="true" />}
                 <span className="w-4 text-right font-mono text-[10px] text-muted">{String(i + 1).padStart(2, '0')}</span>
                 <Icon d={ICON[p.key]} />
                 <span className="truncate">{p.label}</span>
@@ -122,7 +122,7 @@ function TopBar({ page, onMenu }: { page: PageKey; onMenu: () => void }) {
           {selected && <span className="hidden sm:inline"><Pill status={selected.status} /></span>}
           {reconnecting && <span role="status"><Pill status="warn" label="reconnecting…" /></span>}
           <button onClick={() => go('live')} className={btn.secondary} aria-label="Open the live report" aria-current={page === 'live' ? 'page' : undefined}>
-            <span className={`h-1.5 w-1.5 ${busy ? 'bg-accent-strong' : 'bg-muted/40'}`} aria-hidden="true" />
+            <span className={`state-fade h-1.5 w-1.5 rounded-full ${busy ? 'dot-live bg-accent-strong' : 'bg-muted/40'}`} aria-hidden="true" />
             Live
           </button>
         </div>
@@ -164,7 +164,10 @@ function Shell() {
       <div className="min-w-0 bg-workspace">
         <TopBar page={page} onMenu={() => setMenu(true)} />
         <main id="main" className="mx-auto max-w-[1320px] px-4 py-6 sm:px-6 lg:px-8">
-          <View />
+          {/* keyed by page: each page arrives with a short fade */}
+          <div key={page} className="page-in">
+            <View />
+          </div>
         </main>
       </div>
     </div>

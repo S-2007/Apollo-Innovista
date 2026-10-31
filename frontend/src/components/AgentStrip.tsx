@@ -1,5 +1,7 @@
 // AgentStrip: the three agents (APOLLO, ATHENA, HERMES) with status dot and live label,
 // plus the current round and an elapsed timer computed from the first event's timestamp.
+// The working agent's card carries a moving light along its foot and a ringing dot (index.css:
+// .agent-active, .dot-live); a finished agent's dot settles in once (.dot-done).
 
 import { useEffect, useState, type ReactNode } from 'react'
 import type { AgentStatus, Derived } from '../derive'
@@ -46,15 +48,16 @@ export default function AgentStrip({ d, maxRounds }: { d: Derived; maxRounds: nu
           return (
             <div
               key={a.key}
-              className={`min-w-0 rounded-sm border bg-surface px-4 py-3 ${status === 'active' ? 'pulse-border border-accent/60' : 'border-hair'}`}
+              className={`state-fade min-w-0 rounded-sm border px-4 py-3 ${status === 'active' ? 'agent-active border-accent/60 bg-accent/[0.04]' : status === 'done' ? 'border-ok/30 bg-surface' : 'border-hair bg-surface'}`}
             >
               <div className="flex items-center gap-2">
-                <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[status]}`} aria-hidden="true" />
+                <span className={`state-fade h-2 w-2 shrink-0 rounded-full ${DOT[status]} ${status === 'active' ? 'dot-live' : status === 'done' ? 'dot-done' : ''}`} aria-hidden="true" />
                 <span className="font-display text-sm font-semibold tracking-[0.14em]">{a.name}</span>
-                <span className="ml-auto shrink-0 font-mono text-[11px] uppercase text-muted">{status}</span>
+                <span className={`state-fade ml-auto shrink-0 font-mono text-[11px] uppercase ${status === 'active' ? 'text-accent-ink' : status === 'done' ? 'text-ok-ink' : 'text-muted'}`}>{status}</span>
               </div>
               <p className="mt-1 text-xs text-muted">{a.role}</p>
-              <p className={`mt-2 truncate font-mono text-xs ${status === 'active' ? 'text-accent-ink' : 'text-muted'}`} aria-live="polite" title={d.labels[a.key]}>
+              {/* keyed by the label, so each new activity fades in instead of replacing the old one abruptly */}
+              <p key={d.labels[a.key]} className={`feed-in mt-2 truncate font-mono text-xs ${status === 'active' ? 'text-accent-ink' : 'text-muted'}`} aria-live="polite" title={d.labels[a.key]}>
                 {d.labels[a.key]}
               </p>
             </div>

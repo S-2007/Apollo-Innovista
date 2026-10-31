@@ -715,3 +715,24 @@ its copies shared 71% of word 5-grams (one carried a cookie banner), under the 0
 now 0.5 (across the 34 sources of two real runs, different articles overlapped 24% at most). Hermes restated the same
 S1-vs-S3 conflict in round 2, so it was listed twice; contradictions are now kept once per pair of sources.
 `pytest` 122 passed.
+
+## Phase 3.20: motion and hover polish (2026-10-31)
+
+**Asked:** hover effects, micro-interactions, consistent spacing, smooth transitions; refined active-agent animation
+and research progress indicators.
+**Motion system (`index.css`):** one decelerating curve (`--ease-out`), 120 ms feedback, 200 ms state changes, 500 ms
+progress fills. Links, buttons, selects and inputs fade their hover/focus colours; buttons settle 1px when pressed;
+status pills cross-fade (`state-fade`); progress fills grow by `transform: scaleX` (`grow-x`), not width.
+**Active agent:** the working agent's card (Dashboard/New Research strip and the Agents page) carries a light that
+sweeps along its foot and a dot that sends out a soft ring; a finished agent's dot settles in once; each new
+activity line fades in. Replaces the pulsing border.
+**Progress:** the Live Report status strip has a rail that fills stage by stage (by claim during Verify) and turns
+green when done or red if stopped; the current stage carries a slow sheen; the verify bar fills smoothly with a
+sheen while running. Stacked status bars ease to their new shares.
+**Micro-interactions:** sidebar icons lean toward the label on hover and the active marker draws in; the "Initiate
+research" arrow nudges forward; the Live button's dot rings while a run is busy; pages fade in (no movement).
+**Spacing:** already consistent (20 px between page sections everywhere), so unchanged.
+**Accessibility:** every movement and loop is inside `prefers-reduced-motion: no-preference` (checked in the built
+CSS); reduced-motion users keep the colour and state changes. Hover effects are only on things that can be clicked.
+**Checks:** `tsc` and `vite build` clean; desktop and 375 px mobile checked in the browser (no horizontal scroll on
+Live Report, Dashboard, Evidence Explorer).

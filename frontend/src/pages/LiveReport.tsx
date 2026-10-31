@@ -4,7 +4,7 @@
 // the full report before claim verification, and finally the verified report.
 // Everything comes from the run's event stream (store.events) and, at the end, GET /report.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { isKnown, toMs, type AnyEvent, type ClaimStatus, type Report, type Source } from '../api'
 import HitlPanel from '../components/HitlPanel'
 import ProgressFeed from '../components/ProgressFeed'
@@ -132,20 +132,28 @@ export default function LiveReport() {
 
   return (
     <div>
-      {/* status strip */}
-      <div className="mb-5 border border-line bg-surface px-4 py-3">
+      {/* status strip; the rail at its foot fills as stages complete */}
+      <div className="relative mb-5 border border-line bg-surface px-4 py-3">
+        <div className="absolute inset-x-0 bottom-0 h-[2px] bg-surface-2" aria-hidden="true">
+          <div className={`grow-x h-full w-full ${d.status === 'failed' ? 'bg-err' : d.finished ? 'bg-ok' : 'bg-accent-strong'}`}
+            style={{ '--p': d.finished ? 1 : (stage + (stage === 4 && doc.checked?.total ? doc.checked.done / doc.checked.total : 0.5)) / (STAGES.length - 1) } as CSSProperties} />
+        </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <p className="label">Live report</p>
           <p className="font-mono text-xs text-ink" aria-live="polite">{status}</p>
           <p className="font-mono text-xs text-muted">{String(Math.floor(elapsed / 60)).padStart(2, '0')}:{String(elapsed % 60).padStart(2, '0')}</p>
           <p className="font-mono text-xs text-muted">{doc.sources.length} sources · {[...doc.sections.values()].filter((s) => s.final).length}/{doc.plan.length || '?'} sections</p>
           <ol className="flex flex-wrap gap-1 sm:ml-auto" aria-label="Progress">
-            {STAGES.map((s, i) => (
-              <li key={s} aria-current={i === stage ? 'step' : undefined}
-                className={`border px-2 py-0.5 font-mono text-[10.5px] uppercase ${i < stage || (d.finished && i === stage) ? 'border-ok/50 bg-ok/10 text-ok-ink' : i === stage ? 'border-accent-strong bg-accent/15 text-accent-ink' : 'border-line text-muted'}`}>
-                {s}
-              </li>
-            ))}
+            {STAGES.map((s, i) => {
+              const done = i < stage || (d.finished && i === stage)
+              const current = i === stage && !d.finished
+              return (
+                <li key={s} aria-current={i === stage ? 'step' : undefined}
+                  className={`state-fade border px-2 py-0.5 font-mono text-[10.5px] uppercase ${done ? 'border-ok/50 bg-ok/10 text-ok-ink' : current ? `border-accent-strong bg-accent/15 text-accent-ink ${d.status === 'failed' ? '' : 'sheen'}` : 'border-line text-muted'}`}>
+                  {s}
+                </li>
+              )
+            })}
           </ol>
         </div>
       </div>
@@ -174,7 +182,7 @@ export default function LiveReport() {
                 </p>
                 {doc.checked && doc.checked.total > 0 && (
                   <div className="mt-2 h-1.5 w-full max-w-sm overflow-hidden bg-surface-2" aria-hidden="true">
-                    <div className="h-full bg-accent-strong transition-[width] duration-300" style={{ width: `${(doc.checked.done / doc.checked.total) * 100}%` }} />
+                    <div className="grow-x sheen h-full w-full bg-accent-strong" style={{ '--p': doc.checked.done / doc.checked.total } as CSSProperties} />
                   </div>
                 )}
               </div>

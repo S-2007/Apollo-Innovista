@@ -3,7 +3,7 @@
 // Tokens live in index.css (@theme); nothing here uses raw colour values except the
 // shared status palette below.
 
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import type { ClaimStatus } from './api'
 import { go } from './router'
 
@@ -92,7 +92,7 @@ const PILL: Record<string, string> = {
 /** Status is always written out, never colour alone. */
 export function Pill({ status, label }: { status: string; label?: string }) {
   return (
-    <span className={`inline-block whitespace-nowrap border px-1.5 py-[1px] font-mono text-[10.5px] uppercase tracking-wide ${PILL[status] ?? PILL.unchecked}`}>
+    <span className={`state-fade inline-block whitespace-nowrap border px-1.5 py-[1px] font-mono text-[10.5px] uppercase tracking-wide ${PILL[status] ?? PILL.unchecked}`}>
       {label ?? status.replace(/_/g, ' ')}
     </span>
   )
@@ -102,7 +102,7 @@ export function StackedBar({ parts, height = 'h-2' }: { parts: { value: number; 
   const total = parts.reduce((a, p) => a + p.value, 0)
   return (
     <div className={`flex w-full overflow-hidden bg-surface-2 ${height}`} role="img" aria-label={parts.map((p) => `${p.label} ${p.value}`).join(', ')}>
-      {total > 0 && parts.map((p) => p.value > 0 && <div key={p.label} className={p.color} style={{ width: `${(p.value / total) * 100}%` }} title={`${p.label}: ${p.value}`} />)}
+      {total > 0 && parts.map((p) => p.value > 0 && <div key={p.label} className={`${p.color} transition-[width] duration-500 ease-[var(--ease-out)] motion-reduce:transition-none`} style={{ width: `${(p.value / total) * 100}%` }} title={`${p.label}: ${p.value}`} />)}
     </div>
   )
 }
@@ -124,7 +124,7 @@ export function Legend({ items }: { items: { color: string; label: string; value
 export function Meter({ value, max, color = 'bg-accent' }: { value: number; max: number; color?: string }) {
   return (
     <div className="h-1.5 w-full overflow-hidden bg-surface-2">
-      <div className={`h-full ${color}`} style={{ width: `${max > 0 ? Math.min(100, (value / max) * 100) : 0}%` }} />
+      <div className={`grow-x h-full w-full ${color}`} style={{ '--p': max > 0 ? Math.min(1, value / max) : 0 } as CSSProperties} />
     </div>
   )
 }
@@ -132,10 +132,10 @@ export function Meter({ value, max, color = 'bg-accent' }: { value: number; max:
 // ------------------------------------------------------------------ controls
 
 export const btn = {
-  primary: 'inline-flex items-center justify-center gap-2 bg-accent-ink px-3.5 py-2 font-display text-[13px] font-semibold tracking-wide text-white hover:bg-ink disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-muted',
-  secondary: 'inline-flex items-center justify-center gap-2 border border-line bg-surface px-3 py-1.5 text-[13px] text-ink hover:border-ink disabled:cursor-not-allowed disabled:text-muted disabled:hover:border-line',
+  primary: 'inline-flex items-center justify-center gap-2 bg-accent-ink px-3.5 py-2 font-display text-[13px] font-semibold tracking-wide text-white hover:bg-ink hover:shadow-[0_2px_6px_-2px_rgb(17_19_24/0.35)] disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-muted disabled:shadow-none',
+  secondary: 'inline-flex items-center justify-center gap-2 border border-line bg-surface px-3 py-1.5 text-[13px] text-ink hover:border-ink hover:bg-workspace disabled:cursor-not-allowed disabled:text-muted disabled:hover:border-line disabled:hover:bg-surface',
   danger: 'inline-flex items-center justify-center gap-2 border border-err/60 bg-surface px-3 py-1.5 text-[13px] text-err-ink hover:bg-err/10 disabled:cursor-not-allowed disabled:opacity-50',
-  ghost: 'inline-flex items-center gap-1.5 px-2 py-1 text-[13px] text-accent-ink hover:underline',
+  ghost: 'inline-flex items-center gap-1.5 px-2 py-1 text-[13px] text-accent-ink underline decoration-transparent underline-offset-4 hover:decoration-accent-ink',
 }
 
 export const field = 'w-full border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent-strong focus:outline-none disabled:bg-surface-2 disabled:text-muted'
@@ -149,7 +149,7 @@ export function Segmented<T extends string>({ value, options, onChange, label }:
           type="button"
           aria-pressed={value === o.value}
           onClick={() => onChange(o.value)}
-          className={`px-2.5 py-1 font-mono text-[11px] uppercase tracking-wide ${value === o.value ? 'bg-ink text-white' : 'text-muted hover:text-ink'}`}
+          className={`px-2.5 py-1 font-mono text-[11px] uppercase tracking-wide ${value === o.value ? 'bg-ink text-white' : 'text-muted hover:bg-surface-2 hover:text-ink'}`}
         >
           {o.label}
         </button>

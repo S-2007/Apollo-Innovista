@@ -146,7 +146,7 @@ export default function Agents() {
               key={a.key}
               onMouseEnter={() => setFocus(a.key)}
               onMouseLeave={() => setFocus(null)}
-              className={`border bg-surface p-3.5 ${s === 'working' ? 'pulse-border border-accent-strong' : focus === a.key ? 'border-ink' : 'border-line'} ${s === 'unavailable' ? 'bg-workspace' : ''}`}
+              className={`state-fade border p-3.5 ${s === 'working' ? 'agent-active border-accent-strong bg-accent/[0.04]' : focus === a.key ? 'border-ink bg-surface' : 'border-line bg-surface'} ${s === 'unavailable' ? 'bg-workspace' : ''}`}
             >
               <header className="flex items-start justify-between gap-2">
                 <div className="min-w-0">

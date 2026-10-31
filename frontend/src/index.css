@@ -55,24 +55,102 @@
   color: var(--color-muted);
 }
 
-/* Functional motion only; reduced-motion users get none of it. */
-@media (prefers-reduced-motion: no-preference) {
-  @keyframes agent-pulse {
-    0%, 100% { box-shadow: inset 3px 0 0 var(--color-accent); }
-    50% { box-shadow: inset 3px 0 0 var(--color-accent), 0 0 0 1px rgb(76 154 255 / 0.45); }
+/* ---------------------------------------------------------------- motion
+   Motion carries meaning only: feedback on a control, a state that changed, work in progress.
+   Feedback 120 ms, state changes 200 ms, progress fills 500 ms, all on a decelerating curve
+   (no bounce). Colour changes run for everyone; movement and loops only without
+   prefers-reduced-motion, so reduced-motion users keep every state change but nothing moves. */
+:root {
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-feedback: 120ms;
+  --dur-state: 200ms;
+  --dur-progress: 500ms;
+}
+
+@layer base {
+  /* Hover, focus and status colours fade instead of snapping. */
+  a, button, select, input, textarea, summary, [role="tab"] {
+    transition-property: color, background-color, border-color, text-decoration-color, box-shadow, opacity;
+    transition-duration: var(--dur-state);
+    transition-timing-function: var(--ease-out);
   }
-  .pulse-border { animation: agent-pulse 1.8s ease-in-out infinite; }
+}
+
+/* A status label or panel whose state changes cross-fades its colours. */
+@utility state-fade {
+  transition-property: color, background-color, border-color, box-shadow;
+  transition-duration: var(--dur-state);
+  transition-timing-function: var(--ease-out);
+}
+
+/* Progress that grows from the left (scaleX, so no layout work); set --p between 0 and 1. */
+@utility grow-x {
+  transform-origin: left center;
+  transform: scaleX(var(--p, 0));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Buttons settle 1px when pressed: the click registered. */
+  button:not(:disabled):active, [role="button"]:active { transform: translateY(1px); transition-duration: var(--dur-feedback); }
+  button { transition-property: color, background-color, border-color, text-decoration-color, box-shadow, opacity, transform; }
+
+  .grow-x { transition: transform var(--dur-progress) var(--ease-out); }
+
+  /* An arrow in a control leans toward where it goes. */
+  .nudge { display: inline-block; transition: transform var(--dur-state) var(--ease-out); }
+  :is(a, button):hover .nudge { transform: translateX(3px); }
+
+  /* Nav icons lift slightly toward the label on hover. */
+  .nav-icon { transition: transform var(--dur-state) var(--ease-out), color var(--dur-state) var(--ease-out); }
+  a:hover .nav-icon { transform: translateX(2px); }
+
+  /* The active nav marker draws in from its centre. */
+  @keyframes marker-in { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+  .nav-marker { animation: marker-in var(--dur-state) var(--ease-out); }
+
+  /* A new page arrives with a short fade (no movement: the layout does not shift). */
+  @keyframes page-fade { from { opacity: 0; } to { opacity: 1; } }
+  .page-in { animation: page-fade 220ms var(--ease-out); }
+
+  /* The working agent: a light sweeps along the card's foot while it works, and its status
+     dot sends out a soft ring. Both stop the moment the agent goes idle or finishes. */
+  @keyframes agent-sweep { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+  .agent-active { position: relative; overflow: hidden; }
+  .agent-active::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 40%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--color-accent-strong), transparent);
+    animation: agent-sweep 1.6s var(--ease-out) infinite;
+  }
+  @keyframes dot-ring { from { box-shadow: 0 0 0 0 rgb(59 130 246 / 0.45); } to { box-shadow: 0 0 0 6px rgb(59 130 246 / 0); } }
+  .dot-live { animation: dot-ring 1.6s var(--ease-out) infinite; }
+  /* A finished agent's dot settles in once (scale, no bounce). */
+  @keyframes dot-settle { from { transform: scale(0.4); } to { transform: scale(1); } }
+  .dot-done { animation: dot-settle 320ms var(--ease-out); }
+
+  /* The current research stage, and running progress bars, carry a slow sheen: work is under way. */
+  @keyframes sheen { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  .sheen {
+    background-image: linear-gradient(100deg, transparent 30%, rgb(255 255 255 / 0.55) 50%, transparent 70%);
+    background-size: 200% 100%;
+    animation: sheen 2.2s linear infinite;
+  }
 
   @keyframes caret-blink { 50% { opacity: 0; } }
   .caret { animation: caret-blink 1s steps(1) infinite; }
 
-  @keyframes feed-fade { from { opacity: 0; } to { opacity: 1; } }
-  .feed-in { animation: feed-fade 250ms ease-out; }
+  /* New lines in a live list arrive with a fade and a 3px settle. */
+  @keyframes feed-fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+  .feed-in { animation: feed-fade 260ms var(--ease-out); }
 
   @keyframes badge-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
   .stagger-in {
-    animation: badge-in 220ms ease-out both;
-    animation-delay: calc(var(--i, 0) * 60ms);
+    animation: badge-in 220ms var(--ease-out) both;
+    animation-delay: calc(min(var(--i, 0), 8) * 50ms); /* capped: a long list never waits long */
   }
 }
 

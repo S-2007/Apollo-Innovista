@@ -94,7 +94,7 @@ export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Prop
         <button type="button" disabled className={btn.secondary} aria-describedby="attach-note">Attach document</button>
         <span id="attach-note" className="text-[11px] text-muted">Upload not supported: the API accepts a topic only.</span>
         <button type="submit" disabled={busy || !ready} className={`${btn.primary} ml-auto min-w-[180px]`}>
-          {busy ? 'Research in progress' : 'Initiate research →'}
+          {busy ? 'Research in progress' : <>Initiate research <span className="nudge" aria-hidden="true">→</span></>}
         </button>
       </div>
     </form>
