@@ -77,9 +77,10 @@ START → Apollo plans → (you approve/edit) → Athena searches → Hermes rev
 
 ## Known limits
 
-- **Free-tier LLM quotas.** Groq allows 200,000 tokens per model per day, and one run uses about 30–60k. When it
-  runs out, set `LLM_PROVIDER=gemini` (and, if Google reports the model as overloaded,
-  `GEMINI_MODEL=gemini-flash-lite-latest`). Claim verification falls back Groq 20b → Groq 120b → Gemini by itself.
+- **Free-tier LLM quotas.** Groq allows 200,000 tokens per model per day, and one run uses about 30–60k. Every
+  LLM call now falls back by itself along `LLM_CHAIN` (default Groq 120b → Groq 20b → Gemini; verification has its own
+  chain). If every model is out, a section says "Section not written: the language model was unavailable" (never
+  "not found in sources", which is reserved for questions the sources do not answer). Re-run when quotas reset.
 - **Speed.** A run takes 2–4 minutes. Pages are downloaded with 15 s timeouts, so slow sites can use up the 180 s
   research budget and cut round 2 short. Raise `TIMEOUT_SECONDS` in `.env` if that matters for a demo.
 - **Hermes is one LLM judgement over excerpts.** It can miss contradictions or report a scope difference as one.

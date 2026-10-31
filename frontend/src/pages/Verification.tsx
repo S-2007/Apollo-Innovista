@@ -36,6 +36,7 @@ export default function Verification() {
     { label: 'At least half of checked claims verified', ok: total > 0 && counts.verified / total >= 0.5 },
     { label: 'No claim without support in its source', ok: counts.not_found === 0 },
     { label: 'Every claim was checked', ok: counts.unchecked === 0 },
+    { label: 'Every section was written (no LLM outage)', ok: sections.every((s) => !s.write_failed) },
     { label: 'Every sub-question has cited support', ok: sections.length > 0 && supported === sections.length },
     { label: 'At least 80% of sources read in full', ok: report.sources.length > 0 && fullText / report.sources.length >= 0.8 },
     { label: 'Contradiction check ran in every review round', ok: conflictCheck(report.review_health) === 'checked' },
@@ -86,7 +87,7 @@ export default function Verification() {
               <li key={s.index} className="flex items-start gap-3 py-2.5">
                 <span className="font-mono text-xs text-accent-ink">Q{s.index}</span>
                 <span className="min-w-0 flex-1 text-sm text-ink">{s.question}</span>
-                <Pill status={s.not_found ? 'not_found' : s.citations ? 'verified' : 'partial'} label={s.not_found ? 'not found' : `${s.citations} cited`} />
+                {s.write_failed ? <Pill status="failed" label="not written" /> : <Pill status={s.not_found ? 'not_found' : s.citations ? 'verified' : 'partial'} label={s.not_found ? 'not found' : `${s.citations} cited`} />}
               </li>
             ))}
           </ul>

@@ -15,6 +15,9 @@ _LEFTOVER = re.compile(r"\[[^\]]*\bS\d+\b[^\]]*\]")  # e.g. "[S1-S3]" or "[sourc
 _SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
 _LEADING_CITES = re.compile(r"^((?:\[S\d+\]\s*)+)(.*)$", re.DOTALL)
 NOT_FOUND = "not found in sources"
+# A section the LLM could not write (every model failed). Deliberately NOT the NOT_FOUND phrase:
+# the sources may well answer the question; the report must not claim they do not.
+WRITE_FAILED = "Section not written: the language model was unavailable, so the retrieved sources for this sub-question were not summarised."
 # LLM variants such as "not found in the provided sources" are rewritten to the exact phrase.
 _NOT_FOUND_VARIANTS = re.compile(r"not found in (?:the )?(?:provided |given |retrieved |available )?sources?\b", re.I)
 # Sentences whose SUBJECT is the sources' silence ("The sources do not specify X", "No data on X was

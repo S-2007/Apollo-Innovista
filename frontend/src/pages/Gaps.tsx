@@ -25,6 +25,7 @@ export default function Gaps() {
   }
   const notRun = [...new Set(proposed)].filter((g) => !ran.has(g))
   const notFoundSections = (report.sections ?? []).filter((s) => s.not_found)
+  const unwritten = (report.sections ?? []).filter((s) => s.write_failed)
   const notFoundClaims = report.verification.filter((c) => c.status === 'not_found')
   const unchecked = report.verification.filter((c) => c.status === 'unchecked')
   const partial = report.verification.filter((c) => c.status === 'partial')
@@ -51,7 +52,8 @@ export default function Gaps() {
             {access.map((e, i) => <Item key={i} tag={e.kind === 'blocked' ? 'blocked' : e.kind === 'non_html' ? 'PDF' : e.kind === 'no_main_text' ? 'JS?' : 'fetch'}>{e.url ? hostOf(e.url) : ''} · {ERROR_LABEL[e.kind]}</Item>)}
             {snippetOnly.map((s) => <Item key={s.id} tag={s.id}>{hostOf(s.url)}: only the search snippet was available</Item>)}
           </Block>
-          <Block n="3" title="Could not be verified" count={unchecked.length + partial.length}>
+          <Block n="3" title="Could not be verified" count={unwritten.length + unchecked.length + partial.length}>
+            {unwritten.map((s) => <Item key={`w${s.index}`} tag={`Q${s.index} not written`}>{s.question} <em className="text-muted">(every language model failed; re-run when the quota resets)</em></Item>)}
             {unchecked.map((c, i) => <Item key={`u${i}`} tag="unchecked">{c.claim}</Item>)}
             {partial.map((c, i) => <Item key={`p${i}`} tag="partial">{c.claim}</Item>)}
           </Block>

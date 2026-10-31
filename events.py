@@ -10,7 +10,8 @@ sends only these events. Each is {"type", "data", "ts"}; ts is epoch millisecond
   search_failed    {round, query, reason}
   review           {round, complete, gaps}        Hermes' verdict after a round
   gaps_pending     {round, gaps}                  waiting for human approval of the gaps
-  section_written  {section, index, citations, not_found}
+  section_written  {section, index, citations, not_found, write_failed}   write_failed = every LLM failed;
+                                                     the section is NOT claimed to be "not found"
   verification     {verified, partial, not_found, unchecked}   claim counts
   contradictions   {count, reviews, reviews_failed}   reviews = Hermes reviews run; contradictions
                                                      are only looked for in reviews that succeeded
@@ -26,7 +27,7 @@ how many it has already reported and only turns the new items into events.
 
 import time
 
-from tools.text import NOT_FOUND, find_citations
+from tools.text import NOT_FOUND, WRITE_FAILED, find_citations
 
 NODE_VERB = {
     "apollo_plan": "planning",
@@ -141,6 +142,7 @@ class EventConverter:
                     "index": s["index"],
                     "citations": len(find_citations(s["text"])),
                     "not_found": NOT_FOUND in s["text"].lower(),
+                    "write_failed": s["text"] == WRITE_FAILED,
                 },
             )
             for s in u.get("sections", [])

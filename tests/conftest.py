@@ -17,4 +17,5 @@ def no_real_api_keys(monkeypatch):
     for name in ("TAVILY_API_KEY", "SERPER_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY"):
         monkeypatch.setattr(config, name, "")
     monkeypatch.setattr(llm, "_clients", {})
+    monkeypatch.setattr(llm, "_cooling", {})  # a model marked out of quota must not leak between tests
     passages.clear_cache()  # embeddings cached by one test (with its fake model) must not leak into the next

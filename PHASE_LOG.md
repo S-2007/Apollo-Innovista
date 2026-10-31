@@ -391,3 +391,23 @@ sees only ~400 chars per source, chosen per sub-question, with a strict prompt, 
   Agents, Research Gaps and the Verification checklist show "Not checked" instead of 0.
 **Checks:** `pytest` 64 passed (2 new); `npm run build` passes; b4caa31b shows "Not checked (1 of 1 review failed)",
 73181002 shows "No conflicts found … 2 of 2 reviews ran".
+
+## Phase 3.4: LLM fallback chain; "not written" is not "not found" (2026-10-31)
+
+**Reported:** "it runs only 1 round and the answer says not found, but the references are fine" (run d8b0c604,
+"what is A star algorithm").
+**Root cause (from the usage meter):** plan and Hermes calls succeeded, then all 5 parallel `write_section` calls got
+Groq 429 for gpt-oss-120b (quota nearly spent; small requests still passed). Planning, review and writing had no model
+fallback (only verification did), and `write_section` wrote "Not found in sources." when the LLM failed, which is
+false: the 14 sources were fine. The single round was Hermes judging the sources sufficient (`hermes_complete`):
+`max_rounds` is a cap, not a target.
+**Fix**
+- `config.LLM_CHAIN` (default LLM_PROVIDER's model first, then the others; `LLM_CHAIN` in .env overrides) and
+  `llm.chat` walks it when no model is pinned; a model whose daily quota is spent cools down for
+  `LLM_COOLDOWN_SECONDS` (600). Pinned calls (verification's own chain) are unchanged. Meter keeps 400 error chars.
+- `tools.text.WRITE_FAILED`: a section no model could write says so; NOT_FOUND stays reserved for "sources do not
+  answer". `section_written` events and `/report` sections carry `write_failed`; feed, Planning, Verification
+  (new checklist item) and Gaps show "not written".
+**Checks:** `pytest` 70 passed (6 new in `tests/test_llm_chain.py`); `npm run build` passes. Live rerun of the same
+query: Groq 120b and 20b both 429 → Gemini wrote all 5 sections; 2 rounds; 21 claims, 19 verified, 2 partial.
+**Note:** saved run d8b0c604 still says "Not found in sources" (recorded before the fix).

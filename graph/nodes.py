@@ -41,6 +41,7 @@ from tools.jsonparse import parse_json
 from tools.search import search as web_search
 from tools.text import (
     NOT_FOUND,
+    WRITE_FAILED,
     find_citations,
     int_id,
     mark_absence,
@@ -481,6 +482,7 @@ def write_section(task: dict) -> dict:
         allowed = {f["id"] for f in usable}
         user = f"Sub-question: {question}\n\nSources:\n{_source_block(usable, question, errors)}"
         best: list[str] = []
+        replied = False  # did any model answer? If not, the section was never written
         for attempt in (1, 2):  # first try + one retry with feedback if any sentence had to be dropped
             dropped: list[str] = []
             try:
@@ -488,6 +490,7 @@ def write_section(task: dict) -> dict:
             except Exception as exc:
                 errors.append(f"write_section {index + 1} LLM call failed: {type(exc).__name__}: {str(exc)[:200]}")
                 break
+            replied = True
             kept = enforce_citations(raw, allowed, errors, f"write_section {index + 1} (attempt {attempt})", dropped=dropped)
             if sum(bool(find_citations(s)) for s in kept) > sum(bool(find_citations(s)) for s in best) or not best:
                 best = kept
@@ -500,6 +503,8 @@ def write_section(task: dict) -> dict:
                 f"or say it was \"{NOT_FOUND}\"."
             )
         text = " ".join(best)
+        if not text and not replied:
+            text = WRITE_FAILED  # an LLM outage is not evidence that the sources are silent
     # Code, not the model, guarantees the fallback wording.
     if not text:
         text = "Not found in sources."
@@ -533,7 +538,7 @@ def assemble(state: ResearchState) -> dict:
         out = []
         for s in sentences:
             key = sentence_key(s)
-            if key and key in seen and NOT_FOUND not in s.lower():
+            if key and key in seen and NOT_FOUND not in s.lower() and s != WRITE_FAILED:
                 errors.append(f"assemble: removed duplicate sentence: {s[:100]!r}")
                 continue
             seen.add(key)

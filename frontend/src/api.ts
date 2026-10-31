@@ -26,7 +26,7 @@ export interface EventDataMap {
   search_failed: { round?: number; query?: string; reason?: string }
   review: { round?: number; complete?: boolean; gaps?: string[] }
   gaps_pending: { round?: number; gaps?: string[] }
-  section_written: { section?: string; index?: number; citations?: number; not_found?: boolean }
+  section_written: { section?: string; index?: number; citations?: number; not_found?: boolean; write_failed?: boolean }
   verification: { verified?: number; partial?: number; not_found?: number; unchecked?: number }
   contradictions: { count?: number; reviews?: number; reviews_failed?: number }
   report_ready: Record<string, never>
@@ -107,6 +107,7 @@ export interface SectionInfo {
   question: string
   citations: number
   not_found: boolean
+  write_failed?: boolean // every LLM failed: the section was not written (not a "not found")
   source_ids: string[]
 }
 

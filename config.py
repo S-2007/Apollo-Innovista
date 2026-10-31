@@ -35,6 +35,23 @@ REVIEW_TEMPERATURE = 0.2
 WRITE_TEMPERATURE = 0.2
 # Claim verification uses a separate (smaller) model: on Groq each model has its own rate limit.
 VERIFY_MODEL = os.getenv("VERIFY_MODEL", "openai/gpt-oss-20b")
+# Fallback chain for planning, review and writing, "provider:model" in order. The default starts
+# with LLM_PROVIDER's model, then the other models, so a spent daily quota or a rate-limit burst
+# on one model moves the call to the next instead of failing the section. Providers without a key
+# are skipped.
+_DEFAULT_LLM_MODELS = {"groq": [f"groq:{GROQ_MODEL}", f"groq:{VERIFY_MODEL}"], "gemini": [f"gemini:{GEMINI_MODEL}"]}
+LLM_CHAIN = [
+    tuple(item.strip().split(":", 1))
+    for item in os.getenv(
+        "LLM_CHAIN",
+        ",".join(dict.fromkeys(
+            _DEFAULT_LLM_MODELS.get(LLM_PROVIDER, []) + [m for ms in _DEFAULT_LLM_MODELS.values() for m in ms]
+        )),
+    ).split(",")
+    if ":" in item
+]
+LLM_COOLDOWN_SECONDS = _int("LLM_COOLDOWN_SECONDS", 600)  # skip a model this long after its quota ran out
+
 # Fallback chain for claim verification, "provider:model" in order. Each entry has its own quota;
 # when one is spent for the day, verification moves on. Providers without a key are skipped.
 VERIFY_CHAIN = [

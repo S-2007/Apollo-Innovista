@@ -69,7 +69,9 @@ export default function Planning() {
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {state ? <Pill status={state === 'done' ? 'done' : 'failed'} label={state === 'done' ? 'searched' : 'search failed'} /> : <Pill status="idle" label="queued" />}
-                        {sec && <Pill status={sec.not_found ? 'not_found' : 'verified'} label={sec.not_found ? 'not found in sources' : `${sec.citations} cited`} />}
+                        {sec && (sec.write_failed
+                          ? <Pill status="failed" label="not written: LLM unavailable" />
+                          : <Pill status={sec.not_found ? 'not_found' : 'verified'} label={sec.not_found ? 'not found in sources' : `${sec.citations} cited`} />)}
                       </div>
                     </li>
                   )

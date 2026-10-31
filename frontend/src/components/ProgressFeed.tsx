@@ -45,6 +45,7 @@ function describe(e: AnyEvent): Line {
       return { tag: 'GAP', text: `${(e.data.gaps ?? []).length} follow-up queries await your approval`, tone: 'gap' }
     case 'section_written': {
       const c = n(e.data.citations)
+      if (e.data.write_failed) return { tag: 'WARN', text: `${e.data.section ?? 'section'} · not written: language model unavailable`, tone: 'warn' }
       const tail = c ? `${c} citation${c === 1 ? '' : 's'}` : 'not found in sources'
       return { tag: 'WRITE', text: `${e.data.section ?? 'section'} · ${tail}`, tone: 'normal' }
     }

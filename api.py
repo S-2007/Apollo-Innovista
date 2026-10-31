@@ -62,7 +62,7 @@ from graph import nodes
 from graph.state import initial_state
 from graph.workflow import build_graph
 from tools import passages
-from tools.text import CITE, NOT_FOUND, find_citations
+from tools.text import CITE, NOT_FOUND, WRITE_FAILED, find_citations
 from viz.contradictions import write_contradiction_map
 
 VITE_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]  # the Vite dev server only
@@ -406,7 +406,8 @@ def get_report(run_id: str) -> dict:
         "errors": state["errors"],
         "sections": [
             {"index": s["index"] + 1, "question": s["question"], "citations": len(find_citations(s["text"])),
-             "not_found": NOT_FOUND in s["text"].lower(), "source_ids": s["source_ids"]}
+             "not_found": NOT_FOUND in s["text"].lower(), "write_failed": s["text"] == WRITE_FAILED,
+             "source_ids": s["source_ids"]}
             for s in sorted(state["sections"], key=lambda s: s["index"])
         ],
         "citation_check": _citation_check(state),
