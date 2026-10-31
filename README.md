@@ -8,7 +8,7 @@ app_port: 7860
 pinned:  false 
 ---
 
-# Apollo: multi-agent deep research
+# Apollo: Multi-Agent Deep Research
 
 Give Apollo one topic; get back one report in which **every claim cites a source it actually retrieved**,
 each claim checked against that source's text.
