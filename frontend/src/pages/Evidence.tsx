@@ -22,6 +22,15 @@ const STATUS_TEXT: Record<string, string> = {
   unchecked: 'Not checked: the verifier could not be asked (quota, error or claim cap).',
 }
 
+// Runs verified before claims had parts: one yes/no per source, "partial" = a similar sentence exists.
+const LEGACY_STATUS_TEXT: Record<string, string> = {
+  verified: 'The earlier verifier said a cited source supports this claim (one yes/no, not checked part by part).',
+  partial: 'The earlier verifier found a similar sentence in a cited source but did not confirm the claim.',
+  contradicted: STATUS_TEXT.contradicted!,
+  not_found: 'The earlier verifier found no similar sentence in the cited sources.',
+  unchecked: STATUS_TEXT.unchecked!,
+}
+
 // Part verdicts reuse the claim status pill colours.
 const VERDICT_PILL: Record<PartVerdict, string> = {
   supported: 'verified', partial: 'partial', contradicted: 'contradicted', unsupported: 'not_found',
@@ -95,7 +104,7 @@ export default function EvidenceExplorer() {
         <div id="evidence-panel" className="min-w-0 scroll-mt-28">
         <Panel label={`Claim C${claim.n}`} title="Evidence" aside={<Pill status={claim.status} />}>
           <p className="text-[15px] leading-relaxed text-ink">{claim.text}</p>
-          <p className="mt-2 text-sm text-muted">{STATUS_TEXT[claim.status]}</p>
+          <p className="mt-2 text-sm text-muted">{(ev.legacy || !claim.parts.length ? LEGACY_STATUS_TEXT : STATUS_TEXT)[claim.status]}</p>
           {ev.legacy || !claim.parts.length ? (
             <LegacyEvidence claim={claim} legacy={ev.legacy} />
           ) : (
@@ -236,7 +245,8 @@ function PassageItem({ p, parts, active, onSelect }: { p: Passage; parts: ClaimP
 }
 
 function SourcePanel({ source, passage, claim, conflicts }: { source: Source; passage: Passage | null; claim: EvidenceClaim; conflicts: Contradiction[] }) {
-  const best = Math.max(0, ...claim.passages.filter((p) => p.source_id === source.id).map((p) => p.similarity))
+  const mine = claim.passages.filter((p) => p.source_id === source.id)
+  const best = Math.max(0, ...mine.map((p) => p.similarity))
   return (
     <Panel label={`Source ${source.id}`} title={source.title || hostOf(source.url)}>
       <dl className="space-y-3 text-sm">
@@ -259,8 +269,12 @@ function SourcePanel({ source, passage, claim, conflicts }: { source: Source; pa
           ) : <span className="text-muted">No passage from this source.</span>}
         </Row>
         <Row label="Relevance to this claim">
-          <div className="flex items-center gap-2"><div className="w-28"><Meter value={best} max={1} /></div><span className="font-mono text-xs">{best.toFixed(2)}</span></div>
-          <p className="mt-0.5 text-[11px] text-muted">Embedding similarity of its closest passage (0–1, not a probability).</p>
+          {mine.length ? (
+            <>
+              <div className="flex items-center gap-2"><div className="w-28"><Meter value={best} max={1} /></div><span className="font-mono text-xs">{best.toFixed(2)}</span></div>
+              <p className="mt-0.5 text-[11px] text-muted">Embedding similarity of its closest passage (0–1, not a probability).</p>
+            </>
+          ) : <span className="text-muted">Not available: this run kept no passages per source.</span>}
         </Row>
         <Row label="Source type">
           {sourceCategory(source.url)} · {hostOf(source.url)}
