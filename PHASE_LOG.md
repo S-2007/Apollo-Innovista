@@ -709,3 +709,9 @@ numbering, coverage follow-up, off-topic drop, no re-read, checks and report sec
 `tsc`/`vite build` clean; Verification, Sources and the report checked in the browser on a local copy of that run.
 **Limits:** source kind and relevance are word/URL rules, not judgements of quality; publication dates are unknown
 when a page states none; more searches per run (coverage follow-ups, date requests) use more search quota and time.
+**Follow-up (live run in the app, "Is drinking coffee good or bad for heart health?", 2:55, 19 sources, 22 claims:
+19 verified, 3 partial; 5/9 checks passed):** two misses fixed. One Semantic Scholar paper on two URLs was kept twice:
+its copies shared 71% of word 5-grams (one carried a cookie banner), under the 0.8 threshold; `DUPLICATE_OVERLAP` is
+now 0.5 (across the 34 sources of two real runs, different articles overlapped 24% at most). Hermes restated the same
+S1-vs-S3 conflict in round 2, so it was listed twice; contradictions are now kept once per pair of sources.
+`pytest` 122 passed.

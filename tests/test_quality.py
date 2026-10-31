@@ -170,3 +170,23 @@ def test_a_dropped_page_is_not_read_again_in_a_later_round(monkeypatch):
     out = nodes.athena_search(state)
 
     assert read == [] and out["findings"] == [] and len(out["irrelevant"]) == 1
+
+
+def test_one_paper_on_two_urls_is_a_duplicate_even_with_page_clutter():
+    paper = ("Coffee and cardiovascular disease. Habitual coffee intake was not associated with a higher risk of "
+             "coronary heart disease in large cohort studies, and moderate intake was linked to lower mortality. ") * 6
+    clutter = "This website utilizes technologies such as cookies to enable essential site functionality, analytics and personalization. " * 4
+    assert quality.same_content(paper, clutter + paper[: len(paper) * 2 // 3])
+    other = "Drip irrigation cut water use by a third in Maharashtra while yields stayed the same across three seasons. " * 6
+    assert not quality.same_content(paper, other)
+
+
+def test_the_same_conflict_is_listed_once(monkeypatch):
+    reply = json.dumps({"complete": True, "gaps": [], "contradictions": [
+        {"source_a": "S1", "source_b": "S3", "claim": "heavy coffee has no role in heart disease"},
+        {"source_a": "S3", "source_b": "S1", "claim": "heavy coffee raises heart disease risk"}]})
+    monkeypatch.setattr(nodes, "llm_chat", lambda *a, **k: reply)
+    findings = [{"id": i, "section": 0, "title": i, "url": f"https://x/{i}", "snippet": "", "content": "text " * 50}
+                for i in ("S1", "S2", "S3")]
+    out = nodes.hermes_review(_state(findings=findings, searched_queries=["q one"]))
+    assert len(out["contradictions"]) == 1

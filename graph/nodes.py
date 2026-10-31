@@ -402,7 +402,9 @@ def hermes_review(state: ResearchState) -> dict:
         a, b, claim = c.get("source_a"), c.get("source_b"), c.get("claim")
         # Hermes must not invent sources: keep only contradictions between real ids.
         if a in valid_ids and b in valid_ids and a != b and isinstance(claim, str) and claim.strip():
-            contradictions.append({"source_a": a, "source_b": b, "claim": claim.strip()})
+            # One entry per pair of sources: a later review often restates the same conflict in other words.
+            if not any({x["source_a"], x["source_b"]} == {a, b} for x in contradictions):
+                contradictions.append({"source_a": a, "source_b": b, "claim": claim.strip()})
         else:
             errors.append(f"hermes_review dropped contradiction with unknown/invalid sources: {c!r}"[:300])
 

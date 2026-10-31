@@ -89,7 +89,9 @@ EXTRACT_ORDER = os.getenv("EXTRACT_ORDER", "own").strip().lower()
 
 # --- Research quality rules (tools/quality.py) ---
 MIN_SOURCES_PER_QUESTION = _int("MIN_SOURCES_PER_QUESTION", 2)  # readable sources each sub-question should have
-DUPLICATE_OVERLAP = 0.8   # share of word 5-grams two pages must have in common to count as the same article
+# Share of word 5-grams two pages must have in common to count as the same article. Different articles share
+# almost none; one paper on two URLs shared 71% (one copy also carried a cookie banner), so 0.8 missed it.
+DUPLICATE_OVERLAP = 0.5
 MIN_RELEVANCE = 0.3       # share of the sub-question's key words a page must contain (tools/quality.relevance)
 # Read each page's stated publication date from its <head> when the page itself was not downloaded.
 FETCH_PUBLISH_DATES = os.getenv("FETCH_PUBLISH_DATES", "true").strip().lower() == "true"
