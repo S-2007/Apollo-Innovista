@@ -28,7 +28,7 @@ export interface EventDataMap {
   gaps_pending: { round?: number; gaps?: string[] }
   section_written: { section?: string; index?: number; citations?: number; not_found?: boolean }
   verification: { verified?: number; partial?: number; not_found?: number; unchecked?: number }
-  contradictions: { count?: number }
+  contradictions: { count?: number; reviews?: number; reviews_failed?: number }
   report_ready: Record<string, never>
   warning: { message?: string; details?: string[] }
   error: { message?: string }
@@ -124,7 +124,14 @@ export interface Report {
   rounds?: number
   errors?: string[]
   sections?: SectionInfo[]
+  review_health?: ReviewHealth
   citation_check?: { citations: number; unique_cited: number; dangling: string[]; uncited_sources: number; sources: number }
+}
+
+/** Hermes reviews run / failed. Contradictions are only searched for in reviews that succeeded. */
+export interface ReviewHealth {
+  reviews: number
+  reviews_failed: number
 }
 
 export interface Usage {
@@ -151,6 +158,8 @@ export interface RunSummary {
   sources: number
   claims: Record<ClaimStatus, number>
   contradictions: number
+  reviews?: number
+  reviews_failed?: number
   has_report: boolean
   usage: Usage
 }

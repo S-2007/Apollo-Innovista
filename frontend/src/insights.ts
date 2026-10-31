@@ -83,3 +83,21 @@ export function sourceCategory(url: string): SourceCategory {
   if (/\.(com|co|io|ai|biz)$/.test(h)) return 'Industry & company'
   return 'Unclassified'
 }
+
+// ------------------------------------------------------------------ contradiction check status
+
+export type ConflictCheck = 'checked' | 'partial' | 'not_checked' | 'unknown'
+
+/** Was the contradiction search actually done? "0 conflicts" only means "none found" when 'checked'. */
+export function conflictCheck(h?: { reviews?: number; reviews_failed?: number } | null): ConflictCheck {
+  if (!h || h.reviews === undefined || h.reviews_failed === undefined) return 'unknown'
+  if (h.reviews === 0 || h.reviews_failed >= h.reviews) return 'not_checked'
+  return h.reviews_failed > 0 ? 'partial' : 'checked'
+}
+
+export const CONFLICT_CHECK_TEXT: Record<ConflictCheck, string> = {
+  checked: 'Hermes compared the sources in every review round.',
+  partial: 'Some Hermes reviews failed, so conflicts may be missing for those rounds.',
+  not_checked: 'Not checked: every Hermes review failed (LLM error), so contradictions were never looked for. 0 does not mean the sources agree.',
+  unknown: 'Review status unknown for this run.',
+}

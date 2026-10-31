@@ -125,6 +125,17 @@ def _finish(run: Run, status: str, data: dict) -> None:
     _save(run)
 
 
+HERMES_FAILURES = ("hermes_review LLM call failed", "hermes_review got invalid JSON")
+
+
+def _review_health(state: dict | None, events: list[dict]) -> dict:
+    """How many Hermes reviews ran and how many failed. Contradictions are found only in those
+    reviews, so "0 contradictions" means "none found" only when at least one review succeeded."""
+    reviews = sum(e["type"] == "review" for e in events)
+    failed = sum(e.startswith(HERMES_FAILURES) for e in (state or {}).get("errors", []))
+    return {"reviews": reviews, "reviews_failed": min(failed, reviews)}
+
+
 # ---------------------------------------------------------------- persistence
 
 
@@ -204,7 +215,9 @@ def _execute(run: Run) -> None:
         write_report(final, run.out_dir)
         html = run.out_dir / "contradictions.html"
         write_contradiction_map(final["contradictions"], final["findings"], html)
-        _emit(run, [make_event("contradictions", {"count": len(final["contradictions"])})])
+        with _lock:
+            events = list(run.events)
+        _emit(run, [make_event("contradictions", {"count": len(final["contradictions"]), **_review_health(final, events)})])
         with _lock:
             run.state = final
         _emit(run, [make_event("report_ready", {})])
@@ -371,7 +384,7 @@ def _source_rows(state: dict) -> list[dict]:
 def get_report(run_id: str) -> dict:
     run = _get(run_id)
     with _lock:
-        state = run.state
+        state, events = run.state, list(run.events)
     if state is None:
         raise HTTPException(409, "the report is not ready yet")
     return {
@@ -397,6 +410,7 @@ def get_report(run_id: str) -> dict:
             for s in sorted(state["sections"], key=lambda s: s["index"])
         ],
         "citation_check": _citation_check(state),
+        "review_health": _review_health(state, events),
     }
 
 
@@ -445,6 +459,7 @@ def _summary(run: Run) -> dict:
         "sources": len(state["findings"]) if state else sum(e["data"].get("result_count", 0) for e in events if e["type"] == "search_done"),
         "claims": claims,
         "contradictions": len(state["contradictions"]) if state else 0,
+        **_review_health(state, events),
         "has_report": state is not None,
         "usage": metering.summary(metering.calls(run.id)),
     }

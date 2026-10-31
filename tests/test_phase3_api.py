@@ -90,7 +90,7 @@ def test_run_streams_ordered_events_and_serves_report(client):
     assert {"round", "complete", "gaps"} <= set(first["review"])
     assert "section" in first["section_written"]
     assert {"verified", "partial", "not_found"} <= set(first["verification"])
-    assert set(first["contradictions"]) == {"count"} and first["report_ready"] == {}
+    assert set(first["contradictions"]) == {"count", "reviews", "reviews_failed"} and first["report_ready"] == {}
     assert types.count("plan") == 1  # an unchanged, auto-approved plan is not announced twice
 
     report = client.get(f"/api/runs/{run_id}/report").json()
@@ -305,3 +305,24 @@ def test_system_reports_key_presence_never_values(client, monkeypatch):
     body = client.get("/api/system").text
     assert "secretvalue" not in body
     assert json.loads(body)["keys"]["GROQ_API_KEY"] is True
+
+
+def test_failed_hermes_review_is_reported_not_hidden_as_zero_conflicts(client, monkeypatch):
+    def broken_review(n):
+        raise RuntimeError("503 UNAVAILABLE")
+
+    monkeypatch.setattr(nodes, "llm_chat", fake_llm(broken_review))
+    run_id = _start(client)
+    events = _sse_events(client, run_id)
+    conflict = next(e["data"] for e in events if e["type"] == "contradictions")
+    assert conflict["count"] == 0 and conflict["reviews"] >= 1
+    assert conflict["reviews_failed"] == conflict["reviews"]  # nothing was actually checked
+    assert client.get(f"/api/runs/{run_id}/report").json()["review_health"] == {k: conflict[k] for k in ("reviews", "reviews_failed")}
+    row = client.get("/api/runs").json()[0]
+    assert row["reviews_failed"] == row["reviews"] >= 1
+
+
+def test_successful_review_reports_no_failures(client):
+    events = _sse_events(client, _start(client))
+    conflict = next(e["data"] for e in events if e["type"] == "contradictions")
+    assert conflict["reviews"] >= 1 and conflict["reviews_failed"] == 0

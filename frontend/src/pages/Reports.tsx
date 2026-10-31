@@ -7,7 +7,7 @@
 import { useState, type ReactNode } from 'react'
 import { reportDownloadUrl } from '../api'
 import ReportView from '../components/ReportView'
-import { CATEGORIES, classifyErrors, sourceCategory, ERROR_LABEL, type ErrorKind } from '../insights'
+import { CATEGORIES, CONFLICT_CHECK_TEXT, conflictCheck, classifyErrors, sourceCategory, ERROR_LABEL, type ErrorKind } from '../insights'
 import { shareUrl } from '../router'
 import { useStore } from '../store'
 import { Empty, NeedsRun, PageHeader, Panel, Pill, STOP_REASON, btn, fmtDate, fmtMs, fmtTime, hostOf } from '../ui'
@@ -139,7 +139,9 @@ export default function Reports() {
         <H n={7}>Contradictions and disagreements</H>
         {(report.contradictions ?? []).length ? (
           <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">{(report.contradictions ?? []).map((c, i) => <li key={i}>{c.source_a} vs {c.source_b}: {c.claim}</li>)}</ul>
-        ) : <p className="mt-3 text-sm">No conflicts found in sources.</p>}
+        ) : conflictCheck(report.review_health) === 'not_checked'
+          ? <p className="mt-3 text-sm text-err-ink">{CONFLICT_CHECK_TEXT.not_checked}</p>
+          : <p className="mt-3 text-sm">No conflicts found in sources.{conflictCheck(report.review_health) === 'partial' ? ` ${CONFLICT_CHECK_TEXT.partial}` : ''}</p>}
 
         <H n={8}>Unverified findings</H>
         {unverified.length ? (

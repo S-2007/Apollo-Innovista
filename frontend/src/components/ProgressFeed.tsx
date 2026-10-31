@@ -58,7 +58,12 @@ function describe(e: AnyEvent): Line {
     }
     case 'contradictions': {
       const c = n(e.data.count)
-      return { tag: 'CONFLICT', text: c ? `${c} conflict${c === 1 ? '' : 's'} between sources` : 'no conflicts between sources', tone: 'normal' }
+      const failed = n(e.data.reviews_failed)
+      const reviews = e.data.reviews ?? null // absent in runs recorded before this field existed
+      if (reviews !== null && (reviews === 0 || failed >= reviews))
+        return { tag: 'CONFLICT', text: 'contradictions not checked: every Hermes review failed', tone: 'warn' }
+      const tail = failed ? ` (${failed} of ${reviews} reviews failed)` : ''
+      return { tag: 'CONFLICT', text: (c ? `${c} conflict${c === 1 ? '' : 's'} between sources` : 'no conflicts between sources') + tail, tone: failed ? 'warn' : 'normal' }
     }
     case 'report_ready':
       return { tag: 'READY', text: 'report ready', tone: 'good' }

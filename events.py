@@ -12,7 +12,8 @@ sends only these events. Each is {"type", "data", "ts"}; ts is epoch millisecond
   gaps_pending     {round, gaps}                  waiting for human approval of the gaps
   section_written  {section, index, citations, not_found}
   verification     {verified, partial, not_found, unchecked}   claim counts
-  contradictions   {count}
+  contradictions   {count, reviews, reviews_failed}   reviews = Hermes reviews run; contradictions
+                                                     are only looked for in reviews that succeeded
   report_ready     {}
   warning          {message, details}  NON-terminal: a problem the run survived
                                         (unreadable page, rate limit). Shown amber.

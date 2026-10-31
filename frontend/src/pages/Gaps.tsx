@@ -4,7 +4,7 @@
 
 import type { ReactNode } from 'react'
 import { isKnown } from '../api'
-import { ERROR_LABEL, classifyErrors, type ErrorKind } from '../insights'
+import { CONFLICT_CHECK_TEXT, ERROR_LABEL, classifyErrors, conflictCheck, type ErrorKind } from '../insights'
 import { useStore } from '../store'
 import { NeedsRun, PageHeader, Panel, Pill, Stat, Unavailable, hostOf } from '../ui'
 
@@ -55,7 +55,9 @@ export default function Gaps() {
             {unchecked.map((c, i) => <Item key={`u${i}`} tag="unchecked">{c.claim}</Item>)}
             {partial.map((c, i) => <Item key={`p${i}`} tag="partial">{c.claim}</Item>)}
           </Block>
-          <Block n="4" title="Remains disputed" count={disputes.length}>
+          <Block n="4" title="Remains disputed" count={conflictCheck(report.review_health) === 'not_checked' ? null : disputes.length}>
+            {conflictCheck(report.review_health) === 'not_checked' && <Item tag="not checked">{CONFLICT_CHECK_TEXT.not_checked}</Item>}
+            {conflictCheck(report.review_health) === 'partial' && <Item tag="partial">{CONFLICT_CHECK_TEXT.partial}</Item>}
             {disputes.map((c, i) => <Item key={i} tag={`${c.source_a}↔${c.source_b}`}>{c.claim}</Item>)}
           </Block>
           <Block n="5" title="Evidence still needed" count={failed.length + notRun.length}>

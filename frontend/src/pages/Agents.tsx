@@ -7,7 +7,7 @@ import { useState } from 'react'
 import type { AnyEvent, Metrics } from '../api'
 import type { Derived } from '../derive'
 import ProgressFeed from '../components/ProgressFeed'
-import { classifyErrors } from '../insights'
+import { classifyErrors, conflictCheck } from '../insights'
 import { useStore } from '../store'
 import { Empty, Meter, PageHeader, Panel, Pill, fmtInt, fmtSec } from '../ui'
 
@@ -95,7 +95,7 @@ export default function Agents() {
     extract: `${report.sources.filter((s) => s.extracted_by !== 'snippet only').length}/${report.sources.length} pages read in full`,
     cite: `${(errs.uncited_dropped ?? []).length} uncited sentences removed · ${(errs.bad_citation ?? []).length} invalid citations removed`,
     fact: `${report.verification.filter((c) => c.status === 'verified').length}/${report.verification.length} claims verified`,
-    contra: `${(report.contradictions ?? []).length} contradictions found`,
+    contra: conflictCheck(report.review_health) === 'not_checked' ? 'Not checked: every Hermes review failed' : `${(report.contradictions ?? []).length} contradictions found${report.review_health?.reviews_failed ? ` · ${report.review_health.reviews_failed} review(s) failed` : ''}`,
     synth: `${report.sections?.length ?? 0} sections · ${report.citation_check?.citations ?? 0} inline citations`,
   } : {}
   const working = AGENTS.filter((a) => statusOf(a) === 'working').length

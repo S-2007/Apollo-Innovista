@@ -5,6 +5,7 @@
 
 import { useState } from 'react'
 import type { Source } from '../api'
+import { CONFLICT_CHECK_TEXT, conflictCheck } from '../insights'
 import { useStore } from '../store'
 import { Empty, NeedsRun, PageHeader, Panel, Pill, Stat, Unavailable, btn, hostOf } from '../ui'
 
@@ -27,6 +28,8 @@ export default function Contradictions() {
   const list = report.contradictions ?? []
   const byId = new Map(report.sources.map((s) => [s.id, s]))
   const involved = new Set(list.flatMap((c) => [c.source_a, c.source_b]))
+  const check = conflictCheck(report.review_health)
+  const h = report.review_health
   const prefer = (key: string, id: string | null) => {
     const next = { ...prefs }
     if (id) next[key] = id
@@ -42,15 +45,23 @@ export default function Contradictions() {
   return (
     <div>
       <PageHeader kicker="07 · Contradictions" title="Source disagreement" />
+      {(check === 'not_checked' || check === 'partial') && (
+        <div role="alert" className={`mb-5 border px-4 py-3 ${check === 'not_checked' ? 'border-err/60 bg-err/10' : 'border-warn/70 bg-warn/15'}`}>
+          <p className={`font-display text-sm font-semibold ${check === 'not_checked' ? 'text-err-ink' : 'text-warn-ink'}`}>
+            {check === 'not_checked' ? 'Contradiction check did not run' : 'Contradiction check incomplete'}
+          </p>
+          <p className="mt-0.5 text-sm text-ink">{CONFLICT_CHECK_TEXT[check]} {h ? `(${h.reviews_failed} of ${h.reviews} Hermes review${h.reviews === 1 ? '' : 's'} failed.)` : ''} Re-run the research to check again.</p>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-px border border-line bg-line md:grid-cols-3 [&>*]:border-0">
-        <Stat label="Conflicts" value={list.length} tone={list.length ? 'warn' : 'good'} />
+        <Stat label="Conflicts" value={check === 'not_checked' ? 'Not checked' : list.length} sub={h ? `${h.reviews - h.reviews_failed} of ${h.reviews} reviews ran` : undefined} tone={check === 'not_checked' ? 'bad' : list.length ? 'warn' : 'good'} />
         <Stat label="Sources involved" value={involved.size} sub={`of ${report.sources.length}`} />
         <Stat label="Unresolved" value={list.filter((_, i) => !prefs[`${runId}:${i}`]).length} sub="no preferred source chosen" />
       </div>
 
       <div className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <Panel label="Conflicting-source detection" title="Side-by-side comparison">
-          {!list.length ? <Empty>No conflicts found in sources. Hermes compared the retrieved excerpts and reported no disagreement.</Empty> : (
+          {!list.length ? <Empty>{check === 'not_checked' ? 'Unknown: the sources were never compared.' : `No conflicts found in sources. ${CONFLICT_CHECK_TEXT[check]}`}</Empty> : (
             <ul className="space-y-4">
               {list.map((c, i) => {
                 const key = `${runId}:${i}`

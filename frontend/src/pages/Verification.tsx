@@ -3,7 +3,7 @@
 // source accessibility, evidence completeness per section, which verifier models ran, and a
 // research-quality score that is an explicit checklist (shown with its formula).
 
-import { classifyErrors } from '../insights'
+import { classifyErrors, conflictCheck } from '../insights'
 import { useStore } from '../store'
 import { Legend, NeedsRun, PageHeader, Panel, Pill, StackedBar, STATUS_COLOR, Stat, Unavailable, pct } from '../ui'
 
@@ -38,6 +38,7 @@ export default function Verification() {
     { label: 'Every claim was checked', ok: counts.unchecked === 0 },
     { label: 'Every sub-question has cited support', ok: sections.length > 0 && supported === sections.length },
     { label: 'At least 80% of sources read in full', ok: report.sources.length > 0 && fullText / report.sources.length >= 0.8 },
+    { label: 'Contradiction check ran in every review round', ok: conflictCheck(report.review_health) === 'checked' },
   ]
   const passed = checks.filter((c) => c.ok).length
 

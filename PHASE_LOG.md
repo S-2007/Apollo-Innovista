@@ -377,3 +377,17 @@ benchmarks, DOCX export.
 **Bugs found while checking (fixed):** floated legend broke the depth selector; report section numbers started at 2
 (StrictMode double render with a counter); session selector collapsed on phones; nav drawer ignored Escape;
 live badge truncated the nav label.
+
+## Phase 3.3: "0 contradictions" vs "not checked" (2026-10-31)
+
+**Question:** most runs show 0 contradictions: broken or expected?
+**Findings:** detection works: Hermes found a planted conflict (18% yield gain vs no change) on the first call; no saved
+run dropped a contradiction. 0 is mostly expected on descriptive topics (sources complement each other); Hermes also
+sees only ~400 chars per source, chosen per sub-question, with a strict prompt, so recall is limited and varies.
+**Bug fixed:** when every Hermes review failed (run b4caa31b: Gemini 503), the UI still said "No conflicts found".
+- Backend: `contradictions` event, `/report` (`review_health`) and `/api/runs` rows now carry `reviews` and
+  `reviews_failed` (counted from Hermes failure lines in state errors; works for saved runs too).
+- Frontend: `conflictCheck()` → checked / partial / not_checked. Contradictions page, event feed, report section,
+  Agents, Research Gaps and the Verification checklist show "Not checked" instead of 0.
+**Checks:** `pytest` 64 passed (2 new); `npm run build` passes; b4caa31b shows "Not checked (1 of 1 review failed)",
+73181002 shows "No conflicts found … 2 of 2 reviews ran".
