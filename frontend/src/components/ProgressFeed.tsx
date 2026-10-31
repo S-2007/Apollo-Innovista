@@ -16,6 +16,8 @@ const STOP: Record<string, string> = {
   plan_rejected_by_user: 'plan rejected',
   error: 'stopped by an error',
   interrupted: 'interrupted by a server restart',
+  video_unreadable: 'the video could not be read',
+  llm_quota: 'every AI model is out of quota',
 }
 
 const n = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
@@ -23,6 +25,11 @@ const n = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinit
 function describe(e: AnyEvent): Line {
   if (!isKnown(e)) return { tag: 'EVENT', text: e.type, tone: 'normal' }
   switch (e.type) {
+    case 'video': {
+      const how = e.data.extracted_by === 'gemini_transcript' ? 'transcribed by Gemini (no usable captions)' : 'its captions'
+      const upTo = e.data.seconds ? ` · transcript to ${clock(e.data.seconds * 1000)}` : ''
+      return { tag: 'VIDEO', text: `read ${e.data.title ?? 'the video'} from ${how}${upTo}${e.data.truncated ? ' (cut: video too long)' : ''}`, tone: 'good' }
+    }
     case 'plan': {
       const qs = e.data.sub_questions ?? []
       return e.data.awaiting_approval

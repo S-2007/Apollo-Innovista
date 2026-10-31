@@ -145,3 +145,87 @@ def test_run_cut_off_by_a_restart_is_reported_as_interrupted_once():
     assert loaded.status == "failed" and types == ["error", "complete"]  # added once, not per restart
     assert "server restarted" in loaded.events[0]["data"]["message"]
     assert loaded.events[1]["data"] == {"status": "failed", "stop_reason": "interrupted"}
+
+
+# ---------------------------------------------------------------- several servers on one database
+
+
+def _row_from_other_server(run_id: str, heartbeat_age_s: float | None, age_s: float = 60):
+    """A run another server process saved as running, with its heartbeat `heartbeat_age_s` ago (None: no heartbeat)."""
+    import time
+
+    now = int(time.time() * 1000)
+    run = api.Run("Topic", 1, False, run_id=run_id)
+    row = api._row(run)
+    row.update(created_at=now - int(age_s * 1000), server="render:7:abcd",
+               heartbeat=None if heartbeat_age_s is None else now - int(heartbeat_age_s * 1000))
+    with db.engine().begin() as conn:
+        api._upsert(conn, row)
+
+
+def test_run_alive_on_another_server_is_not_marked_interrupted(monkeypatch):
+    monkeypatch.setattr(api, "_ensure_watcher", lambda: None)
+    _row_from_other_server("alive", heartbeat_age_s=5)
+    api._load_saved()
+    assert api._runs["alive"].status == "running" and api._runs["alive"].events == []
+    with db.engine().connect() as conn:
+        assert conn.execute(select(db.runs.c.status).where(db.runs.c.id == "alive")).scalar() == "running"
+
+
+@pytest.mark.parametrize("heartbeat_age_s, age_s, cut_off", [
+    (api.STALE_SECONDS + 5, 600, True),        # its server went quiet
+    (None, api.LEGACY_STALE_SECONDS + 60, True),  # saved by an older server long ago
+    (None, 60, False),                         # an older server's run that may still be going
+])
+def test_run_is_interrupted_only_when_its_server_has_stopped(monkeypatch, heartbeat_age_s, age_s, cut_off):
+    monkeypatch.setattr(api, "_ensure_watcher", lambda: None)
+    _row_from_other_server("r", heartbeat_age_s, age_s)
+    api._load_saved()
+    assert (api._runs["r"].status == "failed") is cut_off
+
+
+def test_watcher_keeps_own_runs_alive_and_catches_up_on_others():
+    import time
+
+    mine = api.Run("Mine", 1, False, run_id="mine")
+    mine.local = True
+    api._save(mine)
+    _row_from_other_server("theirs", heartbeat_age_s=5)
+    _row_from_other_server("gone", heartbeat_age_s=api.STALE_SECONDS + 5)
+    with db.engine().begin() as conn:  # make "mine" look old, so the beat must refresh it
+        conn.execute(db.runs.update().where(db.runs.c.id == "mine").values(heartbeat=1))
+    api._runs["mine"] = mine
+    for run_id in ("theirs", "gone"):
+        api._runs[run_id] = api.Run("Topic", 1, False, run_id=run_id)
+
+    api._beat()
+    with db.engine().connect() as conn:
+        beats = dict(conn.execute(select(db.runs.c.id, db.runs.c.heartbeat)).all())
+    assert beats["mine"] > int(time.time() * 1000) - 5000
+    assert api._runs["theirs"].status == "running"            # its server is alive: left alone
+    assert api._runs["gone"].status == "failed"               # its server stopped: recorded once
+    assert api._runs["gone"].events[-1]["data"]["stop_reason"] == "interrupted"
+
+    finished = api.Run("Topic", 1, False, run_id="theirs")    # the other server finishes its run
+    finished.status, finished.finished_at = "complete", 1
+    with db.engine().begin() as conn:
+        row = api._row(finished)
+        row["server"] = "render:7:abcd"
+        api._upsert(conn, row)
+    api._beat()
+    assert api._runs["theirs"].status == "complete"
+
+
+def test_old_runs_table_gains_the_new_columns(tmp_path, monkeypatch):
+    path = tmp_path / "old.db"
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE runs (id VARCHAR(64) PRIMARY KEY, owner VARCHAR(64), topic TEXT NOT NULL, status VARCHAR(32) "
+                "NOT NULL, max_rounds INTEGER NOT NULL, hitl BOOLEAN NOT NULL, created_at BIGINT NOT NULL, finished_at BIGINT, "
+                "doc JSON NOT NULL)")
+    con.execute("INSERT INTO runs VALUES ('old', NULL, 't', 'complete', 1, 0, 1, 2, '{}')")
+    con.commit()
+    con.close()
+    monkeypatch.setattr(config, "DATABASE_URL", f"sqlite:///{path}")
+    with db.engine().connect() as conn:
+        row = conn.execute(select(db.runs).where(db.runs.c.id == "old")).one()
+    assert row.status == "complete" and row.server is None and row.heartbeat is None

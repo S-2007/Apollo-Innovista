@@ -6,7 +6,7 @@
 // source text. Runs verified before claims had parts show their best-matching sentence only.
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { getEvidence, type ClaimPart, type Contradiction, type Evidence, type EvidenceClaim, type Passage, type PartVerdict, type Source } from '../api'
+import { getEvidence, videoAt, type ClaimPart, type Contradiction, type Evidence, type EvidenceClaim, type Passage, type PartVerdict, type Source } from '../api'
 import { sourceCategory } from '../insights'
 import { useStore } from '../store'
 import { CLAIM_KEYS, Empty, Meter, NeedsRun, PageHeader, Panel, Pill, fmtDate, hostOf } from '../ui'
@@ -232,6 +232,7 @@ function PassageItem({ p, parts, active, onSelect }: { p: Passage; parts: ClaimP
           <span className="font-mono text-[11px] text-accent-ink">{p.label}</span>
           {parts.map((pt, i) => <Pill key={i} status={VERDICT_PILL[pt.verdict]} label={pt.verdict} />)}
           {p.heading && <span className="truncate text-[11px] text-muted">§ {p.heading}</span>}
+          {p.start != null && <span className="font-mono text-[11px] text-accent-ink">▶ {clock(p.start)}</span>}
           <span className="ml-auto font-mono text-[10.5px] text-muted">sim {p.similarity.toFixed(2)}</span>
         </span>
         <span className="mt-1.5 block text-[13px] leading-relaxed">
@@ -247,24 +248,31 @@ function PassageItem({ p, parts, active, onSelect }: { p: Passage; parts: ClaimP
 function SourcePanel({ source, passage, claim, conflicts }: { source: Source; passage: Passage | null; claim: EvidenceClaim; conflicts: Contradiction[] }) {
   const mine = claim.passages.filter((p) => p.source_id === source.id)
   const best = Math.max(0, ...mine.map((p) => p.similarity))
+  const video = source.kind === 'video'
   return (
     <Panel label={`Source ${source.id}`} title={source.title || hostOf(source.url)}>
       <dl className="space-y-3 text-sm">
         <Row label="Original page">
           <a href={source.url} target="_blank" rel="noreferrer" className="break-all text-accent-ink underline underline-offset-2">{source.url}</a>
-          {passage && (
+          {passage && video && passage.start != null && (
+            <a href={videoAt(source.url, passage.start)} target="_blank" rel="noreferrer" className="mt-1 block text-xs text-accent-ink underline underline-offset-2">
+              Watch from {clock(passage.start)}, where passage {passage.label} is said ↗
+            </a>
+          )}
+          {passage && !video && (
             <a href={textFragmentUrl(source.url, passage.text)} target="_blank" rel="noreferrer" className="mt-1 block text-xs text-accent-ink underline underline-offset-2">
               Open the page at passage {passage.label} ↗
             </a>
           )}
-          {passage && <p className="mt-0.5 text-[11px] text-muted">Chrome and Edge scroll to and highlight it; if the page has changed, it opens at the top.</p>}
+          {passage && !video && <p className="mt-0.5 text-[11px] text-muted">Chrome and Edge scroll to and highlight it; if the page has changed, it opens at the top.</p>}
         </Row>
         <Row label="Where in the source">
           {passage ? (
             <>
-              {passage.heading ? <>Under “{passage.heading}”</> : 'No heading found above it'}
-              {passage.position !== null && <span className="text-muted"> · about {Math.round(passage.position * 100)}% into the extracted text</span>}
-              <p className="mt-0.5 text-[11px] text-muted">Page numbers: not available (web pages, no PDF pages).</p>
+              {video ? (passage.start != null ? <>Said at {clock(passage.start)} in the video</> : 'Time in the video not found')
+                : passage.heading ? <>Under “{passage.heading}”</> : 'No heading found above it'}
+              {passage.position !== null && <span className="text-muted"> · about {Math.round(passage.position * 100)}% into the {video ? 'transcript' : 'extracted text'}</span>}
+              {!video && <p className="mt-0.5 text-[11px] text-muted">Page numbers: not available (web pages, no PDF pages).</p>}
             </>
           ) : <span className="text-muted">No passage from this source.</span>}
         </Row>
@@ -277,9 +285,11 @@ function SourcePanel({ source, passage, claim, conflicts }: { source: Source; pa
           ) : <span className="text-muted">Not available: this run kept no passages per source.</span>}
         </Row>
         <Row label="Source type">
-          {source.kind === 'primary' ? 'Original research or official · ' : source.kind === 'secondary' ? 'Secondary article · ' : ''}
-          {sourceCategory(source.url)} · {hostOf(source.url)}
-          <p className="mt-0.5 text-[11px] text-muted">A rule-based guess from the web address, not a credibility rating.</p>
+          {video ? <>Video you shared · {hostOf(source.url)}<p className="mt-0.5 text-[11px] text-muted">Records what the video says, not whether it is true; the other sources check it.</p></> : <>
+            {source.kind === 'primary' ? 'Original research or official · ' : source.kind === 'secondary' ? 'Secondary article · ' : ''}
+            {sourceCategory(source.url)} · {hostOf(source.url)}
+            <p className="mt-0.5 text-[11px] text-muted">A rule-based guess from the web address, not a credibility rating.</p>
+          </>}
         </Row>
         <Row label="Dates">
           Published: {source.published || (source.retrieved_at ? 'not stated by the page' : 'not recorded for this run')}
@@ -287,10 +297,11 @@ function SourcePanel({ source, passage, claim, conflicts }: { source: Source; pa
           <p className="mt-0.5 text-[11px] text-muted">The publication date comes from the page itself; the research date is when Apollo read it.</p>
         </Row>
         <Row label="Found for">
-          {source.question ? <>Sub-question {source.section}: {source.question}</> : <span className="text-muted">–</span>}
+          {video ? 'Every sub-question: it is the video the research is about'
+            : source.question ? <>Sub-question {source.section}: {source.question}</> : <span className="text-muted">–</span>}
         </Row>
         <Row label="Text read from">
-          {source.extracted_by === 'trafilatura' ? 'The page itself' : source.extracted_by === 'tavily_raw' ? 'The search provider’s copy of the page' : 'Search snippet only (page text unavailable)'}
+          {TEXT_FROM[source.extracted_by ?? ''] ?? 'Search snippet only (page text unavailable)'}
         </Row>
         {conflicts.length > 0 && (
           <Row label="Conflicts Hermes found">
@@ -349,6 +360,21 @@ function highlight(text: string, quotes: string[]): ReactNode {
   })
   if (pos < text.length) out.push(text.slice(pos))
   return out
+}
+
+const TEXT_FROM: Record<string, string> = {
+  trafilatura: 'The page itself',
+  tavily_raw: 'The search provider’s copy of the page',
+  youtube_captions: 'The video’s own captions',
+  gemini_transcript: 'A Gemini transcription of the video (it had no usable captions): model output, not captions',
+}
+
+/** 75 -> "01:15", 3725 -> "1:02:05" (same format as the transcript's own stamps). */
+function clock(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds))
+  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0')
+  const ss = String(s % 60).padStart(2, '0')
+  return s >= 3600 ? `${Math.floor(s / 3600)}:${mm}:${ss}` : `${mm}:${ss}`
 }
 
 /** Link that opens the page scrolled to `passage` (URL text fragment; supported by Chromium browsers). */

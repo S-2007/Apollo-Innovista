@@ -52,6 +52,7 @@ import os
 import queue
 import re
 import shutil
+import socket
 import sqlite3
 import subprocess
 import threading
@@ -71,12 +72,14 @@ import auth
 import config
 import db
 import live
+import llm
 import metering
 from events import EventConverter, make_event, warning_event
 from export import render_markdown, write_report
 from graph import nodes
 from graph.state import initial_state
 from graph.workflow import build_graph
+from tools.video import VideoUnreadable, time_of
 from tools import embed, passages
 from tools.text import CITE, CLAIM_STATUSES, NOT_FOUND, WRITE_FAILED, find_citations, strip_citations
 from viz.contradictions import write_contradiction_map
@@ -88,6 +91,14 @@ MAX_ROUNDS_LIMIT = 2         # hard project constraint: never more than 2 resear
 HEARTBEAT_SECONDS = 15
 HITL_WAIT_SECONDS = 15 * 60  # an unanswered approval is auto-approved after this, so a run always ends
 ACTIVE = {"running", "awaiting_input"}
+
+# Several server processes can share one database (Render and a local server on Neon). Each run row records the
+# process that runs it and a heartbeat that process refreshes; another process treats the run as cut off only
+# when that heartbeat has gone quiet (see _owner_gone), never merely because the row says "running".
+SERVER_ID = f"{socket.gethostname()[:30]}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
+HEARTBEAT_SECONDS = 20       # how often this process confirms its active runs are alive
+STALE_SECONDS = 90           # a run whose server has been silent this long has stopped with it
+LEGACY_STALE_SECONDS = 1800  # rows from servers without heartbeats: only this old counts as stopped
 _REJECT = object()           # resume value meaning "cancel this run"
 
 app = FastAPI(title="Apollo deep research")
@@ -112,6 +123,7 @@ class Run:
         self.out_dir = RUNS_DIR / self.id
         self.plan: list[str] = []         # the approved plan (used only by the demo switch)
         self.fail_subquestion = 0         # demo switch: N > 0 makes the N-th sub-question's search fail
+        self.local = False                # executed by this process (False: loaded from the database)
 
 
 _runs: dict[str, Run] = {}
@@ -205,7 +217,8 @@ def _row(run: Run) -> dict:
             "calls": metering.calls(run.id),
         }
         return {"id": run.id, "owner": run.owner, "topic": run.topic, "status": run.status, "max_rounds": run.max_rounds,
-                "hitl": run.hitl, "created_at": run.created_at, "finished_at": run.finished_at, "doc": _clean(doc)}
+                "hitl": run.hitl, "created_at": run.created_at, "finished_at": run.finished_at, "doc": _clean(doc),
+                "server": SERVER_ID, "heartbeat": int(time.time() * 1000)}
 
 
 def _upsert(conn, row: dict) -> None:
@@ -266,8 +279,40 @@ INTERRUPTED_MESSAGE = ("This run was interrupted because the server restarted (f
                        "or a new version was deployed). Please start it again.")
 
 
+def _owner_gone(row, now_ms: int) -> bool:
+    """Has the process running this active row stopped? Only then can the run never finish.
+
+    Saved by this very process, which did not start it here: yes (it cannot be running it). Otherwise the owner's
+    heartbeat decides; a row from a server that predates heartbeats counts as stopped only when it is old."""
+    if row.server == SERVER_ID:
+        return True
+    if row.heartbeat is None:
+        return now_ms - row.created_at > LEGACY_STALE_SECONDS * 1000
+    return now_ms - row.heartbeat > STALE_SECONDS * 1000
+
+
+def _run_from_row(r, now_ms: int) -> tuple[Run, bool]:
+    """(the run as stored, whether it was just found cut off). A cut-off run gets its error and end events."""
+    run = Run(r.topic, r.max_rounds, r.hitl, run_id=r.id, owner=r.owner)
+    doc = r.doc or {}
+    run.status, run.events, run.state = r.status, doc.get("events", []), doc.get("state")
+    run.created_at, run.finished_at = r.created_at, r.finished_at
+    interrupted = run.status in ACTIVE and _owner_gone(r, now_ms)
+    if interrupted:
+        run.status, run.finished_at = "failed", run.finished_at or now_ms
+        run.events = run.events + [
+            make_event("error", {"message": INTERRUPTED_MESSAGE}),
+            make_event("complete", {"status": "failed", "stop_reason": "interrupted"}),
+        ]
+    metering.load(run.id, doc.get("calls", []))
+    return run, interrupted
+
+
 def _load_saved() -> None:
-    """Load finished runs from the database (after importing any older file stores)."""
+    """Load runs from the database (after importing any older file stores).
+
+    A row still "running" whose server has stopped is recorded as interrupted. One whose server is alive (another
+    process sharing this database) is loaded as it is and watched (_beat) until it finishes or its server stops."""
     try:
         _import_legacy()
         with db.engine().connect() as conn:
@@ -275,23 +320,59 @@ def _load_saved() -> None:
     except Exception as exc:  # e.g. the database is unreachable: start anyway, with no history
         log.warning("could not load saved runs: %s: %s", type(exc).__name__, str(exc)[:200])
         return
+    now = int(time.time() * 1000)
+    watch = False
     for r in rows:
-        run = Run(r.topic, r.max_rounds, r.hitl, run_id=r.id, owner=r.owner)
-        doc = r.doc or {}
-        run.status, run.events, run.state = r.status, doc.get("events", []), doc.get("state")
-        run.created_at, run.finished_at = r.created_at, r.finished_at
-        interrupted = run.status in ACTIVE  # saved mid-run by an earlier server process: it can never finish now
-        if interrupted:
-            run.status, run.finished_at = "failed", run.finished_at or int(time.time() * 1000)
-            run.events = run.events + [
-                make_event("error", {"message": INTERRUPTED_MESSAGE}),
-                make_event("complete", {"status": "failed", "stop_reason": "interrupted"}),
-            ]
-        metering.load(run.id, doc.get("calls", []))
+        run, interrupted = _run_from_row(r, now)
         with _lock:
             _runs.setdefault(run.id, run)
         if interrupted:
             _save(run)  # record the outcome, so the next restart does not report it again
+        watch = watch or run.status in ACTIVE
+    if watch:
+        _ensure_watcher()
+
+
+def _beat() -> None:
+    """Refresh the heartbeat of this process's active runs; catch up on runs other processes are running."""
+    now = int(time.time() * 1000)
+    with _lock:
+        mine = [r.id for r in _runs.values() if r.local and r.status in ACTIVE]
+        others = [r.id for r in _runs.values() if not r.local and r.status in ACTIVE]
+    if not mine and not others:
+        return
+    with db.engine().begin() as conn:
+        if mine:
+            conn.execute(update(db.runs).where(db.runs.c.id.in_(mine)).values(server=SERVER_ID, heartbeat=now))
+        rows = conn.execute(select(db.runs).where(db.runs.c.id.in_(others))).all() if others else []
+    for r in rows:
+        if r.status in ACTIVE and not _owner_gone(r, now):
+            continue  # still running elsewhere
+        run, interrupted = _run_from_row(r, now)  # finished elsewhere, or its server stopped
+        with _lock:
+            _runs[run.id] = run
+        if interrupted:
+            _save(run)
+
+
+_watcher: threading.Thread | None = None
+
+
+def _watch() -> None:
+    while True:
+        time.sleep(HEARTBEAT_SECONDS)
+        try:
+            _beat()
+        except Exception as exc:  # the database may be briefly unreachable; try again next time
+            log.warning("heartbeat failed: %s: %s", type(exc).__name__, str(exc)[:200])
+
+
+def _ensure_watcher() -> None:
+    global _watcher
+    with _lock:
+        if _watcher is None or not _watcher.is_alive():
+            _watcher = threading.Thread(target=_watch, daemon=True, name="run-heartbeat")
+            _watcher.start()
 
 
 # ---------------------------------------------------------------- graph thread
@@ -347,6 +428,12 @@ def _execute(run: Run) -> None:
             run.state = final
         _emit(run, [make_event("report_ready", {})])
         _finish(run, final["status"], {"stop_reason": final["stop_reason"], "rounds": final["round_no"]})
+    except llm.LLMUnavailable as exc:  # every model's quota is spent: stopped before searching
+        _emit(run, [make_event("error", {"message": str(exc)[:600]})])
+        _finish(run, "failed", {"stop_reason": "llm_quota"})
+    except VideoUnreadable as exc:  # the shared video's words could not be read: say why, research nothing
+        _emit(run, [make_event("error", {"message": str(exc)[:600]})])
+        _finish(run, "failed", {"stop_reason": "video_unreadable"})
     except Exception as exc:  # a run-level failure is reported as events, never as a crash
         _emit(run, [make_event("error", {"message": f"Run failed: {type(exc).__name__}: {str(exc)[:300]}"})])
         _finish(run, "failed", {"stop_reason": "error"})
@@ -458,10 +545,14 @@ def me(user: User) -> dict:
 
 @app.post("/api/runs")
 def start_run(req: RunRequest, user: User) -> dict:
+    if llm.all_exhausted():  # known from earlier calls: refuse at once rather than start a run that cannot finish
+        raise HTTPException(503, llm.quota_message())
     passages.clear_cache()  # bounded memory; each run re-embeds its own sources
     if config.EMBED_WARM_UP:
         embed.warm_up()  # load the model while the run plans and searches, not when verification starts
     run = Run(req.topic.strip(), req.max_rounds, req.hitl, owner=user["id"])
+    run.local = True
+    _ensure_watcher()
     if DEMO_FAIL_SUBQUESTION and any(t["id"] == "B" and t["topic"] == run.topic for t in _demo_topics()):
         run.fail_subquestion = DEMO_FAIL_SUBQUESTION
     with _lock:
@@ -557,8 +648,8 @@ def _source_rows(state: dict) -> list[dict]:
             "title": f["title"],
             "url": f["url"],
             "snippet": " ".join(f["snippet"].split())[:300],
-            "section": f["section"] + 1,
-            "question": state["plan"][f["section"]] if f["section"] < len(state["plan"]) else "",
+            "section": f["section"] + 1,  # 0: the shared video, used by every section
+            "question": state["plan"][f["section"]] if 0 <= f["section"] < len(state["plan"]) else "",
             "extracted_by": f["extracted_by"] or "snippet only",
             "kind": f.get("kind", ""),                # "primary" | "secondary" ("" in runs before Phase 3.19)
             "published": f.get("published", ""),      # the page's own date, "" = unknown
@@ -607,6 +698,7 @@ def get_report(run_id: str, user: User) -> dict:
         "duplicates": state.get("duplicates", []),
         "irrelevant": state.get("irrelevant", []),
         "review_health": _review_health(state, events),
+        "video": state.get("video", {}),  # {} unless the topic was a YouTube link
     }
 
 
@@ -622,12 +714,19 @@ def get_evidence(run_id: str, user: User) -> dict:
     if state is None:
         raise HTTPException(409, "the report is not ready yet")
     claims = state["claims"]
+    videos = {f["id"]: f["content"] for f in state["findings"] if f.get("kind") == "video"}
+
+    def timed(passages: list[dict]) -> list[dict]:
+        """A passage from the video transcript gains `start`: the second it is spoken (for a link)."""
+        return [{**p, "start": time_of(videos[p["source_id"]], p["text"])} if p.get("source_id") in videos else p
+                for p in passages]
+
     return {
         "legacy": bool(claims) and not any("parts" in c for c in claims),
         "claims": [
             {"n": n, "claim": c["claim"], "text": strip_citations(c["claim"]), "status": c["status"],
              "source_ids": c["source_ids"], "similarity": round(c["similarity"], 3), "best_match": c["best_match"],
-             "evidence": c["evidence"], "parts": c.get("parts", []), "passages": c.get("passages", [])}
+             "evidence": c["evidence"], "parts": c.get("parts", []), "passages": timed(c.get("passages", []))}
             for n, c in enumerate(claims, 1)
         ],
         "sources": _source_rows(state),

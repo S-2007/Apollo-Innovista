@@ -297,26 +297,33 @@ _models_lock = threading.Lock()
 
 
 def _ask(prompt: str, models: list[tuple[str, str]], errors: list[str], sid: str) -> str | None:
-    """Ask the first model in `models`. If its daily quota is spent, drop it and try the next.
+    """Ask the first model in `models`; on any failure, try the next one for this claim.
 
-    `models` is shared across the whole report, so once a model is exhausted it is not
-    called again; when the list is empty, verification stops calling the LLM.
+    `models` is shared across the whole report: a model whose daily quota is spent is removed, so it
+    is not called again; when the list is empty, verification stops calling the LLM. Any other failure
+    (a per-minute limit still hit after the retries, an overloaded or timed-out model) moves only this
+    claim to the next model, so one busy model no longer leaves the claim 'unchecked'.
     """
+    tried: set[tuple[str, str]] = set()
     while True:
         with _models_lock:
-            if not models:
+            left = [m for m in models if m not in tried]
+            if not left:
                 return None
-            provider, model = models[0]
+            provider, model = left[0]
         try:
             return llm_chat(VERIFY_SYSTEM, prompt, temperature=0.0, model=model, provider=provider)
         except Exception as exc:
+            tried.add((provider, model))
             if is_quota_exhausted(exc):
                 with _models_lock:
                     # Several claims run at once: only the first to see this model fail removes it.
-                    if models and models[0] == (provider, model):
-                        models.pop(0)
+                    if (provider, model) in models:
+                        models.remove((provider, model))
                         nxt = f"switching to {models[0][0]}:{models[0][1]}" if models else "remaining claims will be 'unchecked'"
                         errors.append(f"verify: quota exhausted for {provider}:{model}; {nxt}")
                 continue
-            errors.append(f"verify: LLM call failed for {sid}: {type(exc).__name__}: {str(exc)[:200]}")
-            return None
+            with _models_lock:
+                more = any(m not in tried for m in models)
+            errors.append(f"verify: LLM call failed for {sid} on {provider}:{model}: {type(exc).__name__}: "
+                          f"{str(exc)[:200]}" + ("; trying the next model" if more else ""))

@@ -55,7 +55,7 @@ def fake_llm(review_reply, writer=default_writer, assembler=default_assembler, v
     calls = {"review": 0}
 
     def _chat(system, user, temperature=0.2, model=None, on_text=None):
-        if system == nodes.PLAN_SYSTEM:
+        if system in (nodes.PLAN_SYSTEM, nodes.VIDEO_PLAN_SYSTEM):
             return "```json\n" + json.dumps({"sub_questions": plan}) + "\n```"
         if system == nodes.REVIEW_SYSTEM:
             calls["review"] += 1

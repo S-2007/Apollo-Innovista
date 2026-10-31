@@ -1,7 +1,9 @@
 """The nodes of the Apollo graph — one function per agent step.
 
 Research loop (Phase 1):
-- apollo_plan    (Apollo, manager): LLM splits the topic into 3-5 sub-questions.
+- apollo_plan    (Apollo, manager): LLM splits the topic into 3-5 sub-questions. If the topic
+                 holds a YouTube link, the video's transcript is read first (tools/video.py),
+                 becomes source S1 for every section, and the plan covers the video's claims.
 - review_plan    (human): optional interrupt to approve or edit the plan.
 - athena_search  (Athena, searcher): web-searches each pending query, picks the
                  top new pages and numbers them S1, S2, ... in order, tags each
@@ -36,6 +38,7 @@ from langgraph.types import Send, interrupt
 
 import config
 import live
+import llm
 from llm import chat as llm_chat
 from tools.extract import page_content, page_date
 from tools.passages import relevant_passages
@@ -51,6 +54,7 @@ from tools.quality import (
 )
 from tools.jsonparse import parse_json
 from tools.search import search as web_search
+from tools.video import find_video, plan_excerpt, read_video
 from tools.text import (
     CLAIM_STATUSES,
     NOT_FOUND,
@@ -65,7 +69,7 @@ from tools.text import (
 )
 from verify.claims import verify_report
 
-from .state import Query, ResearchState, Section
+from .state import ALL_SECTIONS, Query, ResearchState, Section
 
 # ---------------------------------------------------------------- helpers
 
@@ -144,6 +148,33 @@ PLAN_SYSTEM = (
 )
 
 
+VIDEO_PLAN_SYSTEM = (
+    "You are Apollo, the research manager. The user shared a video; you see its title and lines from its "
+    f"transcript. List {config.MIN_SUBQUESTIONS}-{config.MAX_SUBQUESTIONS} specific, searchable sub-questions "
+    "that together cover the video's main factual claims (and the user's own question, if any), so each claim "
+    "can be checked against independent sources. State the claim itself in each sub-question (e.g. \"Does "
+    "intermittent fasting lower blood pressure?\"), never \"the video\" or \"the speaker\". Do NOT answer them. "
+    'Reply with JSON only: {"sub_questions": ["...", "..."]}'
+)
+
+
+def _video_finding(video: dict) -> dict:
+    """The shared video as source S1, available to every section."""
+    return {
+        "id": "S1",
+        "section": ALL_SECTIONS,
+        "query": "(the video you shared)",
+        "title": video["title"] + (f" ({video['channel']})" if video["channel"] else ""),
+        "url": video["url"],
+        "snippet": video["content"][:300],
+        "content": video["content"],
+        "extracted_by": video["extracted_by"],
+        "kind": "video",
+        "published": "",
+        "retrieved_at": int(time.time()),
+    }
+
+
 def _validate_plan(obj) -> list[str] | None:
     if not obj:
         return None
@@ -156,10 +187,23 @@ def _validate_plan(obj) -> list[str] | None:
 def apollo_plan(state: ResearchState) -> dict:
     events, errors = list(state["events"]), list(state["errors"])
     topic = state["topic"]
+    # A YouTube link is read before planning. VideoUnreadable is not caught: a run about a video that
+    # could not be read stops with the reason instead of researching a guess.
+    video = read_video(topic, errors) if find_video(topic) else None
+    system, prompt = PLAN_SYSTEM, f"Topic: {topic}"
+    if video:
+        question = topic.replace(video["link"], " ").strip() or "(none: check the video's main claims)"
+        system = VIDEO_PLAN_SYSTEM
+        prompt = (f"User's question: {question}\nVideo: {video['title']}"
+                  + (f" by {video['channel']}" if video["channel"] else "")
+                  + f"\nTranscript lines:\n{plan_excerpt(video['content'], config.VIDEO_PLAN_CHARS)}")
+        how = "its captions" if video["extracted_by"] == "youtube_captions" else "a Gemini transcription"
+        events.append(f"[Apollo] Read the video {video['title']!r} from {how}: {len(video['content'])} characters"
+                      + (" (cut at the transcript limit)" if video["truncated"] else ""))
     plan = None
     for attempt in (1, 2):  # first try + one retry
         try:
-            raw = llm_chat(PLAN_SYSTEM, f"Topic: {topic}", temperature=config.PLAN_TEMPERATURE)
+            raw = llm_chat(system, prompt, temperature=config.PLAN_TEMPERATURE)
         except Exception as exc:
             errors.append(f"apollo_plan LLM call failed (attempt {attempt}): {type(exc).__name__}: {str(exc)[:200]}")
             continue
@@ -168,11 +212,18 @@ def apollo_plan(state: ResearchState) -> dict:
             break
         errors.append(f"apollo_plan got invalid plan JSON (attempt {attempt}): {raw[:200]!r}")
 
+    if not plan and llm.all_exhausted():
+        # Every model is out of quota: searching would only lead to a report no model can write.
+        raise llm.LLMUnavailable(llm.quota_message())
     if not plan:
-        plan = [topic]
+        plan = [f"What does the video {video['title']!r} claim, and is it accurate?" if video else topic]
         events.append("[Apollo] Planning failed; falling back to the topic itself as the only sub-question.")
     events.append(f"[Apollo] Plan ({len(plan)} sub-questions): " + " | ".join(plan))
-    return {"plan": plan, "paused_at": time.time(), "events": events, "errors": errors}
+    update = {"plan": plan, "paused_at": time.time(), "events": events, "errors": errors}
+    if video:
+        update.update(findings=[_video_finding(video)],
+                      video={k: v for k, v in video.items() if k not in ("content", "link")})
+    return update
 
 
 # ---------------------------------------------------------------- human: approve plan
@@ -345,9 +396,10 @@ def _review_prompt(state: ResearchState, errors: list[str]) -> str:
     lines += [f"{i}. {q}" for i, q in enumerate(state["plan"], 1)]
     lines.append("Sources:")
     for f in state["findings"]:
-        question = state["plan"][f["section"]] if f["section"] < len(state["plan"]) else state["topic"]
+        question = state["plan"][f["section"]] if 0 <= f["section"] < len(state["plan"]) else state["topic"]
         excerpt = relevant_passages(f["content"] or f["snippet"], question, config.HERMES_CHARS_PER_SOURCE, errors)
-        lines.append(f"[{f['id']}] (sub-question {f['section'] + 1}) {f['title']} — {' '.join(excerpt.split())}")
+        where = "the user's video, transcript" if f["section"] == ALL_SECTIONS else f"sub-question {f['section'] + 1}"
+        lines.append(f"[{f['id']}] ({where}) {f['title']} — {' '.join(excerpt.split())}")
     if not state["findings"]:
         lines.append("(no sources were found)")
     return "\n".join(lines)
@@ -487,7 +539,7 @@ def route_after_decide(state: ResearchState):
                 "index": i,
                 "question": q,
                 "topic": state["topic"],
-                "findings": [f for f in state["findings"] if f["section"] == i],
+                "findings": [f for f in state["findings"] if f["section"] in (i, ALL_SECTIONS)],
             },
         )
         for i, q in enumerate(state["plan"])
@@ -509,6 +561,8 @@ WRITE_SYSTEM = (
     "- Sources marked (original research or official) are primary evidence: where sources overlap, state "
     "the fact from them and cite them first.\n"
     "- If sources disagree, say so in one sentence and cite each side; never pick one side silently.\n"
+    "- A source marked (video transcript) records what the user's video says, not whether it is true: "
+    "attribute it (\"The video says ...\") and use the other sources to judge it.\n"
     f"- If the sources do not support a point the sub-question asks about, write a sentence saying it was "
     f"\"{NOT_FOUND}\" (with no citation).\n"
     "Reply with the paragraph only."
@@ -522,7 +576,7 @@ def _source_block(findings: list[dict], question: str, errors: list[str]) -> str
     parts = []
     for f in sorted(findings, key=lambda f: f.get("kind") != "primary"):
         text = relevant_passages(f["content"] or f["snippet"], question, config.WRITE_CHARS_PER_SOURCE, errors)
-        mark = " (original research or official)" if f.get("kind") == "primary" else ""
+        mark = {"primary": " (original research or official)", "video": " (video transcript)"}.get(f.get("kind"), "")
         parts.append(f"[{f['id']}]{mark} {f['title']}\n{text}")
     return "\n\n".join(parts)
 
@@ -669,7 +723,9 @@ def assemble(state: ResearchState) -> dict:
     concl_text = " ".join(conclusion) or "In summary, see the sections above; each claim cites the source it comes from."
 
     # 3. Report body and References (only ids actually cited).
-    parts = [f"# {state['topic']}", "## Introduction", intro_text]
+    video = state.get("video") or {}
+    title = f"Fact check: {video['title']}" if video.get("title") else state["topic"]  # not a bare link as the title
+    parts = [f"# {title}", "## Introduction", intro_text]
     for s, body in zip(sections, bodies):
         parts += [f"## {s['index'] + 1}. {s['question']}", body]
     parts += ["## Conclusion", concl_text]

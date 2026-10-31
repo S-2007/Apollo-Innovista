@@ -7,7 +7,8 @@ Two tables:
          UI shows for an old run (report, sources, claims, metrics, contradiction map) is rebuilt
          from this row, so the server keeps no state on local disk that matters.
 
-The same SQLAlchemy Core code runs on both databases; tables are created on first use.
+The same SQLAlchemy Core code runs on both databases; tables are created on first use, and columns added
+since (runs.server, runs.heartbeat) are added to an existing table, so older rows and older servers still work.
 Neon gives URLs like postgresql://user:pass@host/db?sslmode=require; they are used as-is
 (only the scheme is pointed at the psycopg 3 driver). The URL is read from .env, never logged.
 """
@@ -15,7 +16,7 @@ Neon gives URLs like postgresql://user:pass@host/db?sslmode=require; they are us
 import threading
 
 from sqlalchemy import (
-    JSON, BigInteger, Boolean, Column, Integer, MetaData, String, Table, Text, create_engine,
+    JSON, BigInteger, Boolean, Column, Integer, MetaData, String, Table, Text, create_engine, inspect, text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Engine
@@ -44,7 +45,15 @@ runs = Table(
     Column("created_at", BigInteger, nullable=False, index=True),
     Column("finished_at", BigInteger),
     Column("doc", JSON().with_variant(JSONB(), "postgresql"), nullable=False),  # events, state, calls
+    # Which server process runs it and when that process last confirmed it was alive (epoch ms). Several servers
+    # can share one database (Render and a local server on Neon): a starting server marks a run interrupted only
+    # when its own server has gone quiet, not merely because it is "running". NULL: saved by an older server.
+    Column("server", String(64)),
+    Column("heartbeat", BigInteger),
 )
+
+# Columns added after the first release, as (name, SQL type): created on an existing table by engine().
+_ADDED_COLUMNS = {"runs": [("server", "VARCHAR(64)"), ("heartbeat", "BIGINT")]}
 
 _lock = threading.Lock()
 _engine: Engine | None = None
@@ -83,5 +92,17 @@ def engine() -> Engine:
                 # Neon closes idle connections: check each pooled connection before use.
                 _engine = create_engine(url, pool_pre_ping=True, pool_recycle=300, pool_size=5, max_overflow=5)
             metadata.create_all(_engine)
+            _add_missing_columns(_engine)
             _engine_url = url
         return _engine
+
+
+def _add_missing_columns(eng: Engine) -> None:
+    """ALTER TABLE ... ADD COLUMN for columns a table created by an older version lacks (nullable, so safe
+    for rows and servers that do not know them)."""
+    existing = {t: {c["name"] for c in inspect(eng).get_columns(t)} for t in _ADDED_COLUMNS}
+    with eng.begin() as conn:
+        for table, cols in _ADDED_COLUMNS.items():
+            for name, sql_type in cols:
+                if name not in existing[table]:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"))

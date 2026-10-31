@@ -18,10 +18,14 @@ class Finding(TypedDict):
     url: str
     snippet: str   # short text from the search API
     content: str   # extracted page text (capped), "" if extraction failed
-    extracted_by: str  # "trafilatura" | "tavily_raw" | "" (none)
-    kind: str      # "primary" (original research / official) or "secondary": rule-based, from the URL
+    extracted_by: str  # "trafilatura" | "tavily_raw" | "youtube_captions" | "gemini_transcript" | "" (none)
+    kind: str      # "primary" (original research / official), "secondary" (rule-based, from the URL) or "video"
     published: str  # the page's own publication date (YYYY[-MM[-DD]]), "" = it states none
     retrieved_at: int  # research date: when Apollo read the page (epoch seconds)
+
+
+# Finding.section for a source that serves every sub-question: the YouTube video the user shared.
+ALL_SECTIONS = -1
 
 
 class Query(TypedDict):
@@ -119,6 +123,10 @@ class ResearchState(TypedDict):
     quality: list[dict]                   # checks run before completion: {id, label, status, detail}
     quality_overall: str                  # "passed" | "passed_with_warnings" | "failed" ("" before the check)
 
+    # A YouTube link in the topic (tools/video.py): {id, url, title, channel, extracted_by, language, seconds,
+    # truncated}; {} when the topic has none. Its transcript is source S1.
+    video: dict
+
 
 def initial_state(
     topic: str,
@@ -157,4 +165,5 @@ def initial_state(
         irrelevant=[],
         quality=[],
         quality_overall="",
+        video={},
     )

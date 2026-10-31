@@ -736,3 +736,59 @@ research" arrow nudges forward; the Live button's dot rings while a run is busy;
 CSS); reduced-motion users keep the colour and state changes. Hover effects are only on things that can be clicked.
 **Checks:** `tsc` and `vite build` clean; desktop and 375 px mobile checked in the browser (no horizontal scroll on
 Live Report, Dashboard, Evidence Explorer).
+
+## Phase 3.21: YouTube links are read, not guessed (2026-11-01)
+
+**Problem:** chatbots given a YouTube link usually see only its title and description (the transcript is not in the
+page, and YouTube often blocks bots), then guess the content.
+**Now:** a YouTube link in the topic (watch, shorts, live, embed, youtu.be; a question may follow it) is read before
+planning by `tools/video.py`: the video's own captions first (`youtube-transcript-api`; manual before auto, English
+first, other languages translated by YouTube when possible), else Gemini watches the video by URL and transcribes it
+(`llm.transcribe_video`, labelled `gemini_transcript`, not presented as captions). If neither works, the run stops
+with the reasons (`stop_reason: video_unreadable`); nothing is summarised from the title.
+**In the run:** the transcript ("[mm:ss] words" lines, up to `VIDEO_MAX_CHARS`, marked when cut) is source S1 for
+every section (`section = ALL_SECTIONS`). The planner sees lines spread over the whole video and turns its factual
+claims into searchable sub-questions; the writer must attribute the transcript ("The video says …") and judge it with
+the web sources; Hermes can flag video-vs-source conflicts. The report is titled "Fact check: <video title>".
+**UI:** the topic form says when it detects a link; a `video` event opens the event log; Evidence Explorer shows when
+each video passage is said (▶ 03:14) and links to that moment; Sources marks the video.
+**Checked:** a 14-minute TED talk on localhost: captions read (833 s), five sub-questions about the talk's claims, 16
+web sources, passages linked to 03:14, 03:21, 03:48, 10:53. 9 of 19 claims were "unchecked" because Groq's
+per-minute token limit (429) hit the verifier, not because of the video. Not checked on Render: YouTube often blocks
+cloud servers' caption requests, so there the Gemini fallback (needs `GEMINI_API_KEY`) is expected to do the work.
+`pytest` 142 passed (20 new in `tests/test_video.py`).
+
+## Phase 3.22: runs that came back empty (2026-11-01)
+
+**Audit of the last 40 runs:** search worked (most read 12-24 sources); runs failed afterwards. (1) LLM quota: Groq
+gpt-oss-120b hit its tokens-per-day limit and Gemini's free quota ran out, so both "G20" runs read 14 sources and wrote
+0 of 5 sections; the verifier hit rate limits in almost every run, leaving claims "unchecked". (2) Correctly cited
+sentences were dropped as uncited because models wrote 【S6】, [S6†L1-L4], (S6) or [S1-S3]. (3) Topics with little on
+the web (private people, a GitHub URL) say "not found", which is correct. (4) 7 runs were "interrupted" by restarts.
+**Fixes:** `normalize_citations` rewrites those shapes to [S#] (ranges up to 5 ids); the ids still pass the allowed-id
+check. Spare models with their own quotas join both chains after the main ones (`SPARE_MODELS`: Groq
+qwen/qwen3.8-27b; Gemini gemini-3-flash-preview, gemini-3.6-flash, gemini-3.5-flash, gemma-4-26b-a4b-it; each answered
+a JSON prompt on this project's keys; gemini-2.5-* are retired for new users). The verifier now moves a claim to the
+next model on any failure (per-minute limit, 503, timeout), not only on a spent daily quota. When every model is out of
+quota, planning raises `LLMUnavailable` and the run stops before searching (`stop_reason: llm_quota`); a new run is
+refused with 503 and the same message while that is known.
+**Checked:** "Research on G20" again on localhost: 10 sources, 4 of 5 sections answered (was 0 of 5), 19 claims checked
+(7 verified, 9 partial, 2 contradicted, 1 not found, 0 unchecked) although the verifier met 15 rate limits; the
+assembler fell back to qwen/qwen3.8-27b when gpt-oss-20b was rate-limited. `pytest` 158 passed.
+**Found, not fixed:** every server start marks every "running" run in the shared database as interrupted, including
+runs still alive on another server (Render waking up, or a local server sharing Neon). The G20 run was labelled
+interrupted in the database while it was still running locally.
+
+## Phase 3.23: a live run is no longer marked "interrupted" by another server (2026-11-01)
+
+**Bug:** at startup a server marked every run its database listed as "running" as interrupted. Render (which sleeps
+and wakes) and local servers share Neon, so a server waking up mislabelled runs still working on another server.
+**Fix:** each server process has an id (`SERVER_ID`); run rows gained nullable `server` and `heartbeat` columns
+(added to an existing table automatically, so older rows and older servers keep working). A process refreshes the
+heartbeat of its active runs every 20 s (`_beat`). A run is treated as cut off only when its server has been silent
+for 90 s (`STALE_SECONDS`), or, for rows from servers without heartbeats, when it is over 30 minutes old. A server
+watches runs it loaded that another server is running, and records them when they finish or their server stops.
+**Checked:** two real servers on one throwaway SQLite database. Server A started a run that waited for plan
+approval; server B started and left it "running" (the old code marked it interrupted at this point); after A was
+stopped, B recorded the run as interrupted about 85 s later. `pytest` 164 passed.
+**Needs:** Render redeployed with this version; until then its startup still marks running runs interrupted.

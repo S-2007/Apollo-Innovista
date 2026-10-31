@@ -243,6 +243,8 @@ export const STOP_REASON: Record<string, string> = {
   plan_rejected_by_user: 'Plan rejected by you',
   error: 'Stopped by an error',
   interrupted: 'Interrupted by a server restart',
+  video_unreadable: 'The video could not be read',
+  llm_quota: 'AI model quota used up',
 }
 
 /** Download text as a file (client-side export of data already on screen). */

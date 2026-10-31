@@ -54,6 +54,30 @@ def _get_client(provider: str):
 _cooling: dict[tuple[str, str], float] = {}  # (provider, model) -> monotonic time its quota may be back
 _KEYS = {"groq": lambda: config.GROQ_API_KEY, "gemini": lambda: config.GEMINI_API_KEY}
 
+QUOTA_MESSAGE = (
+    "Every AI model's free quota is used up right now (Groq and Gemini daily limits), so Apollo stopped "
+    "before searching instead of returning an empty report. Each model is tried again {when}; a new or "
+    "paid API key in .env also fixes it."
+)
+
+
+class LLMUnavailable(Exception):
+    """Every model in LLM_CHAIN has run out of quota: a run cannot write its report."""
+
+
+def all_exhausted() -> bool:
+    """True when every keyed model in LLM_CHAIN is skipped for a spent quota (known from earlier calls)."""
+    now = time.monotonic()
+    keyed = [(p, m) for p, m in dict.fromkeys(config.LLM_CHAIN) if _KEYS.get(p, lambda: "")()]
+    return bool(keyed) and all(_cooling.get(c, 0) > now for c in keyed)
+
+
+def quota_message() -> str:
+    now = time.monotonic()
+    waits = [t - now for t in _cooling.values() if t > now]
+    when = f"in about {max(1, round(min(waits) / 60))} min" if waits else "shortly"
+    return QUOTA_MESSAGE.format(when=when)
+
 
 def chat(
     system: str, user: str, temperature: float = 0.2, model: str | None = None, provider: str | None = None,
@@ -105,6 +129,44 @@ def _chat_one(provider: str, name: str, system: str, user: str, temperature: flo
     metering.record("llm", True, time.monotonic() - started, provider=provider, model=name,
                     prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
     return text
+
+
+TRANSCRIBE_PROMPT = (
+    "Transcribe the speech in this video. One line per sentence, each starting with the time it is "
+    "spoken as [mm:ss] (or [h:mm:ss]). Keep the speaker's words; if the speech is not in English, "
+    "translate each line to English. Do not summarise, add or explain anything. If the video has no "
+    "speech, reply NO_SPEECH. Output only the transcript."
+)
+
+
+@with_retries(config.LLM_MAX_RETRIES)
+def transcribe_video(url: str) -> str:
+    """Gemini watches a public YouTube video by URL and returns "[mm:ss] sentence" lines (tools/video.py).
+    Low media resolution: the words are what matters, and it keeps a 15-minute video near 50k tokens."""
+    from google.genai import types
+
+    name, started = config.VIDEO_GEMINI_MODEL, time.monotonic()
+    try:
+        resp = _get_client("gemini").models.generate_content(
+            model=name,
+            contents=types.Content(parts=[types.Part(file_data=types.FileData(file_uri=url)),
+                                          types.Part(text=TRANSCRIBE_PROMPT)]),
+            config=types.GenerateContentConfig(
+                temperature=0,
+                media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
+                http_options=types.HttpOptions(timeout=config.VIDEO_TIMEOUT_SECONDS * 1000),
+            ),
+        )
+    except Exception as exc:
+        metering.record("llm", False, time.monotonic() - started, provider="gemini", model=name,
+                        error=f"{type(exc).__name__}: {str(exc)[:400]}")
+        raise
+    usage = getattr(resp, "usage_metadata", None)
+    metering.record("llm", True, time.monotonic() - started, provider="gemini", model=name,
+                    prompt_tokens=getattr(usage, "prompt_token_count", 0) or 0,
+                    completion_tokens=(getattr(usage, "candidates_token_count", 0) or 0)
+                    + (getattr(usage, "thoughts_token_count", 0) or 0))
+    return resp.text or ""
 
 
 def _call(provider: str, name: str, system: str, user: str, temperature: float) -> tuple[str, int, int]:

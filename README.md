@@ -73,6 +73,11 @@ START → Apollo plans → (you approve/edit) → Athena searches → Hermes rev
   exact quote. Code checks each quote is really in the source, so an invented quote cannot verify anything.
   Result: verified / partial / contradicted / not_found / unchecked. The **Evidence Explorer** page shows each
   claim's parts, the passages (quotes highlighted, with context and position) and the source.
+- **YouTube links** (`tools/video.py`): paste a video link (optionally with a question) and Apollo reads its words
+  before planning: the video's captions, or a Gemini transcription when there are none or YouTube blocks the server.
+  The timestamped transcript becomes source S1 for every section, the plan checks the video's claims against web
+  sources, and the Evidence Explorer links each passage to the moment it is said. If the words cannot be read, the
+  run stops and says why; it never guesses from the title.
 - **Research-quality rules** (`tools/quality.py`), applied by code:
   - Each sub-question should have at least `MIN_SOURCES_PER_QUESTION` (2) readable sources. A thinner one gets a
     follow-up search, and Hermes cannot call the research complete until coverage is met or the round limit hits.

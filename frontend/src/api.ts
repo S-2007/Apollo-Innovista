@@ -5,6 +5,7 @@
 // ------------------------------------------------------------------ events
 
 export type EventType =
+  | 'video' // the YouTube video in the topic was read (its transcript is source S1)
   | 'plan'
   | 'search_started'
   | 'search_done'
@@ -25,6 +26,7 @@ export type EventType =
   | 'complete'
 
 export interface EventDataMap {
+  video: VideoInfo
   plan: { sub_questions?: string[]; awaiting_approval?: boolean }
   search_started: { round?: number; index?: number; total?: number; query?: string }
   search_done: { round?: number; query?: string; result_count?: number; sources?: { id: string; title?: string; url: string }[] }
@@ -54,7 +56,7 @@ export type UnknownEvent = { type: string; data: Record<string, unknown>; ts: nu
 export type AnyEvent = RunEvent | UnknownEvent
 
 const KNOWN = new Set<string>([
-  'plan', 'search_started', 'search_results', 'search_done', 'search_failed', 'review', 'gaps_pending', 'section_draft', 'section_written', 'report_written', 'claim_checked',
+  'video', 'plan', 'search_started', 'search_results', 'search_done', 'search_failed', 'review', 'gaps_pending', 'section_draft', 'section_written', 'report_written', 'claim_checked',
   'verification', 'quality', 'contradictions', 'report_ready', 'warning', 'error', 'complete',
 ])
 
@@ -83,6 +85,21 @@ export const toMs = (ts: number) => (ts < 1e12 ? ts * 1000 : ts)
 
 // ------------------------------------------------------------------ REST types
 
+/** A YouTube video given in the topic. Its transcript is source S1, shared by every section. */
+export interface VideoInfo {
+  id?: string
+  url?: string
+  title?: string
+  channel?: string
+  extracted_by?: 'youtube_captions' | 'gemini_transcript'
+  language?: string
+  seconds?: number // transcript covers the video up to here
+  truncated?: boolean // the transcript was cut at the backend's length limit
+}
+
+/** Link to a moment in a YouTube video. */
+export const videoAt = (url: string, seconds: number) => `${url}${url.includes('?') ? '&' : '?'}t=${Math.max(0, Math.floor(seconds))}s`
+
 export type ClaimStatus = 'verified' | 'partial' | 'contradicted' | 'not_found' | 'unchecked'
 
 export interface Source {
@@ -90,11 +107,11 @@ export interface Source {
   title?: string
   url: string
   snippet?: string
-  section?: number
+  section?: number // 0: the shared video, used by every section
   status?: string
   question?: string
-  extracted_by?: string // "trafilatura" | "tavily_raw" | "snippet only"
-  kind?: string // "primary" (original research / official) | "secondary"; rule-based from the URL; "" in older runs
+  extracted_by?: string // "trafilatura" | "tavily_raw" | "youtube_captions" | "gemini_transcript" | "snippet only"
+  kind?: string // "primary" (original research / official) | "secondary" (rule-based from the URL) | "video"; "" in older runs
   published?: string // the page's own publication date (YYYY[-MM[-DD]]); "" = the page states none
   retrieved_at?: number | null // research date: when Apollo read the page (epoch seconds); null in older runs
   cited?: boolean
@@ -131,6 +148,7 @@ export interface Passage {
   similarity: number // embedding similarity to the claim, 0-1 (not a probability)
   position: number | null // where it starts in the extracted text, 0 = start
   heading: string // nearest heading above it in the extracted text
+  start?: number | null // video transcripts only: the second this passage is spoken
 }
 
 export interface EvidenceClaim {
@@ -189,6 +207,7 @@ export interface Report {
   quality_overall?: '' | 'passed' | 'passed_with_warnings' | 'failed'
   duplicates?: { url: string; duplicate_of: string }[]
   irrelevant?: { url: string; relevance: number }[] // pages dropped as not about their sub-question
+  video?: VideoInfo // {} unless the topic was a YouTube link
 }
 
 export interface QualityCheck {

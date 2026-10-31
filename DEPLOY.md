@@ -174,6 +174,8 @@ docker run -d --name apollo --restart unless-stopped --env-file .env -p 127.0.0.
 | Container exits | `docker logs apollo`; usually a missing or quoted value in `.env` |
 | Sign-in does not stick | Use the `https://` address; `COOKIE_SECURE=true` needs HTTPS |
 | `/api/system` (signed in) shows `"database": "sqlite"` | `DATABASE_URL` missing from the server's `.env`; data would be lost on rebuild |
+| A run shows "interrupted" although it was still working | Every server sharing the database (Render, a local server on Neon) must run a version with run heartbeats (Phase 3.23). An older server still marks every running run interrupted when it starts, so redeploy Render after updating |
+| YouTube link: "Could not read the video … RequestBlocked / IpBlocked" | YouTube often refuses caption requests from cloud servers. Set `GEMINI_API_KEY` so Gemini transcribes the video instead (`VIDEO_GEMINI_FALLBACK=true`, the default) |
 
 ## What the repo provides for this
 

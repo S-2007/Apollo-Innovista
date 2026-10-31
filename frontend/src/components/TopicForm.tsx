@@ -1,4 +1,4 @@
-// Research command form: objective, research depth (= max research rounds, which the backend
+// Research command form: objective (a question, or a YouTube link to read and fact-check), research depth (= max research rounds, which the backend
 // caps at 2) and human approval. It starts empty: no sample topics, so nothing looks like an
 // earlier user's search. Controls the backend
 // cannot honour yet (document upload, source preference, agent count) are shown disabled with
@@ -9,6 +9,9 @@ import { btn, field } from '../ui'
 
 // The backend enforces the project's hard limit of 2 research rounds (it rejects 3 with a 422).
 export const MAX_ROUNDS_OPTIONS = [1, 2] as const
+// Same links the backend reads (tools/video.py): watch, shorts, live, embed and youtu.be.
+const YOUTUBE = /(?:youtube\.com\/(?:watch\?\S*v=|shorts\/|live\/|embed\/)|youtu\.be\/)[\w-]{11}/i
+
 const DEPTH = [
   { rounds: 1, label: 'Focused', hint: '1 search round' },
   { rounds: 2, label: 'Deep', hint: '2 rounds: Hermes can order follow-up searches' },
@@ -28,6 +31,7 @@ export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Prop
   const [maxRounds, setMaxRounds] = useState<number>(2)
   const [hitl, setHitl] = useState(false)
   const ready = topic.trim().length >= 3
+  const video = YOUTUBE.test(topic)
 
   return (
     <form
@@ -45,10 +49,16 @@ export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Prop
           value={topic}
           disabled={busy}
           onChange={(e) => setTopic(e.target.value)}
-          placeholder="Type your research question"
+          placeholder="Type your research question, or paste a YouTube link (add a question after it if you like)"
           className={`${field} mt-1.5 resize-none font-display text-[15px]`}
         />
-        <p className="mt-1 text-[11px] text-muted">3–300 characters. The report uses retrieved sources only; unsupported points say "not found in sources".</p>
+        {video ? (
+          <p className="feed-in mt-1.5 border-l-2 border-accent-strong bg-accent/[0.06] px-2.5 py-1.5 text-xs text-ink">
+            <span className="font-medium">YouTube video detected.</span> Apollo reads its transcript (captions, or a Gemini transcription if there are none), then checks the video's claims against independent sources, citing the moment each one is said. If the words cannot be read, the run stops and says why; it never guesses from the title.
+          </p>
+        ) : (
+          <p className="mt-1 text-[11px] text-muted">3–300 characters. The report uses retrieved sources only; unsupported points say "not found in sources".</p>
+        )}
 
       </div>
 

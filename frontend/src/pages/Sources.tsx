@@ -100,7 +100,8 @@ export default function Sources() {
                     <a href={s.url} target="_blank" rel="noreferrer" className="text-sm text-ink underline decoration-line underline-offset-2 hover:decoration-ink [overflow-wrap:anywhere]">{s.title || s.url}</a>
                     <p className="mt-0.5 truncate font-mono text-[10.5px] text-muted">{s.url}</p>
                     {s.question && <p className="mt-1 text-xs text-muted">Retrieved for Q{s.section}: {s.question}</p>}
-                    {s.retrieved_at && (
+                    {s.kind === 'video' && <p className="mt-1 text-xs text-muted">The video you shared, read from {s.extracted_by === 'gemini_transcript' ? 'a Gemini transcription (no usable captions)' : 'its captions'}; used by every sub-question.</p>}
+                    {s.retrieved_at && s.kind !== 'video' && (
                       <p className="mt-0.5 font-mono text-[10.5px] text-muted">
                         Published: {s.published || 'not stated by the page'} · Researched: {fmtDate(s.retrieved_at * 1000)}
                       </p>
@@ -109,7 +110,7 @@ export default function Sources() {
                   </div>
                   <div className="flex flex-wrap content-start gap-1.5 md:max-w-[260px] md:justify-end">
                     {s.kind === 'primary' && <Pill status="working" label="original research / official" />}
-                    <Pill status="idle" label={sourceCategory(s.url)} />
+                    {s.kind === 'video' ? <Pill status="working" label="your video · transcript" /> : <Pill status="idle" label={sourceCategory(s.url)} />}
                     <Pill status={s.extracted_by === 'snippet only' ? 'partial' : 'done'} label={s.extracted_by === 'snippet only' ? 'snippet only' : 'full text'} />
                     <Pill status={s.cited ? 'verified' : 'unchecked'} label={s.cited ? 'cited' : 'not cited'} />
                     {KEYS.filter((k) => s.claims?.[k]).map((k) => <Pill key={k} status={k} label={`${s.claims?.[k]} ${k.replace('_', ' ')}`} />)}

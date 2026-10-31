@@ -41,7 +41,18 @@ VERIFY_MODEL = os.getenv("VERIFY_MODEL", "openai/gpt-oss-20b")
 # with LLM_PROVIDER's model, then the other models, so a spent daily quota or a rate-limit burst
 # on one model moves the call to the next instead of failing the section. Providers without a key
 # are skipped.
-_DEFAULT_LLM_MODELS = {"groq": [f"groq:{GROQ_MODEL}", f"groq:{VERIFY_MODEL}"], "gemini": [f"gemini:{GEMINI_MODEL}", f"gemini:{GEMINI_FALLBACK_MODEL}"]}
+# Spare models, each with its own free quota, used only after the main ones are spent. Checked on 2026-11-01:
+# every one answered a JSON prompt on this project's keys (gemini-2.5-* were retired for new users; the
+# two flash-lite models above were out of quota). Preview models can be withdrawn: override with LLM_CHAIN.
+SPARE_MODELS = {
+    "groq": os.getenv("GROQ_SPARE_MODELS", "qwen/qwen3.8-27b"),
+    "gemini": os.getenv("GEMINI_SPARE_MODELS", "gemini-3-flash-preview,gemini-3.6-flash,gemini-3.5-flash,gemma-4-26b-a4b-it"),
+}
+_SPARE = {p: [f"{p}:{m.strip()}" for m in ms.split(",") if m.strip()] for p, ms in SPARE_MODELS.items()}
+_DEFAULT_LLM_MODELS = {
+    "groq": [f"groq:{GROQ_MODEL}", f"groq:{VERIFY_MODEL}"] + _SPARE["groq"],
+    "gemini": [f"gemini:{GEMINI_MODEL}", f"gemini:{GEMINI_FALLBACK_MODEL}"] + _SPARE["gemini"],
+}
 LLM_CHAIN = [
     tuple(item.strip().split(":", 1))
     for item in os.getenv(
@@ -59,7 +70,9 @@ LLM_COOLDOWN_SECONDS = _int("LLM_COOLDOWN_SECONDS", 600)  # skip a model this lo
 VERIFY_CHAIN = [
     tuple(item.strip().split(":", 1))
     for item in os.getenv(
-        "VERIFY_CHAIN", f"groq:{VERIFY_MODEL},groq:{GROQ_MODEL},gemini:{GEMINI_MODEL},gemini:{GEMINI_FALLBACK_MODEL}"
+        "VERIFY_CHAIN",
+        ",".join([f"groq:{VERIFY_MODEL}", f"groq:{GROQ_MODEL}", f"gemini:{GEMINI_MODEL}", f"gemini:{GEMINI_FALLBACK_MODEL}"]
+                 + _SPARE["groq"] + _SPARE["gemini"]),
     ).split(",")
     if ":" in item
 ]
@@ -95,6 +108,16 @@ DUPLICATE_OVERLAP = 0.5
 MIN_RELEVANCE = 0.3       # share of the sub-question's key words a page must contain (tools/quality.relevance)
 # Read each page's stated publication date from its <head> when the page itself was not downloaded.
 FETCH_PUBLISH_DATES = os.getenv("FETCH_PUBLISH_DATES", "true").strip().lower() == "true"
+
+# --- YouTube links (tools/video.py) ---
+VIDEO_LANGUAGES = ["en", "en-US", "en-GB", "hi"]  # caption languages tried first, in order
+VIDEO_LINE_SECONDS = 20     # caption snippets are grouped into lines of about this length, each with its time
+VIDEO_MAX_CHARS = 40000     # transcript kept (about 45 minutes of speech); a longer video is marked as cut
+VIDEO_PLAN_CHARS = 6000     # transcript lines, spread over the whole video, shown to the planner
+# No captions, or YouTube blocks the server: let Gemini watch the video by URL and transcribe it.
+VIDEO_GEMINI_FALLBACK = os.getenv("VIDEO_GEMINI_FALLBACK", "true").strip().lower() == "true"
+VIDEO_GEMINI_MODEL = os.getenv("VIDEO_GEMINI_MODEL", GEMINI_MODEL)
+VIDEO_TIMEOUT_SECONDS = _int("VIDEO_TIMEOUT_SECONDS", 180)
 
 # --- Writing and verification (Phase 2) ---
 WRITE_CHARS_PER_SOURCE = 1200   # most relevant passages per source sent to the writer (TPM limit)

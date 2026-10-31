@@ -12,6 +12,14 @@ import re
 CITE = re.compile(r"\[(S\d+)\]")
 _GROUP = re.compile(r"\[\s*(S\d+(?:\s*[,;]\s*S\d+)+)\s*\]")
 _LEFTOVER = re.compile(r"\[[^\]]*\bS\d+\b[^\]]*\]")  # e.g. "[S1-S3]" or "[source S2]"
+# Other citation shapes models produce, rewritten to [S#] before any check (otherwise a correctly cited sentence
+# is dropped as uncited): gpt-oss's 【S6】 / 【6†L1-L4】 / 【S1, S6】, a locator [S6†L1-L4], parentheses (S6) /
+# (S1, S6), and a short range [S1-S3]. The ids still go through the allowed-id check afterwards.
+_FULLWIDTH = re.compile(r"【([^】]*)】")
+_DAGGER = re.compile(r"\[\s*(S\d+)\s*†[^\]]*\]")
+_PAREN = re.compile(r"\(\s*(S\d+(?:\s*[,;]\s*S\d+)*)\s*\)")
+_RANGE = re.compile(r"\[\s*S(\d+)\s*[-–]\s*S?(\d+)\s*\]")
+MAX_RANGE = 5  # a longer "range" is more likely a mistake than a citation; it is removed as before
 _SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
 _LEADING_CITES = re.compile(r"^((?:\[S\d+\]\s*)+)(.*)$", re.DOTALL)
 NOT_FOUND = "not found in sources"
@@ -38,7 +46,20 @@ def mark_absence(sentence: str) -> str:
     return sentence.rstrip(" .") + f": {NOT_FOUND}."
 
 
+def _cites(ids) -> str:
+    return "".join(f"[S{int(i)}]" for i in ids)
+
+
+def _range(m: re.Match) -> str:
+    a, b = int(m.group(1)), int(m.group(2))
+    return _cites(range(a, b + 1)) if 0 <= b - a < MAX_RANGE else m.group(0)
+
+
 def normalize_citations(text: str) -> str:
+    text = _FULLWIDTH.sub(lambda m: _cites(re.findall(r"S?(\d+)", m.group(1).split("†")[0])) or m.group(0), text)
+    text = _DAGGER.sub(r"[\1]", text)
+    text = _PAREN.sub(lambda m: _cites(re.findall(r"S(\d+)", m.group(1))), text)
+    text = _RANGE.sub(_range, text)
     text = _GROUP.sub(lambda m: "".join(f"[{i}]" for i in re.split(r"\s*[,;]\s*", m.group(1))), text)
     return _LEFTOVER.sub(lambda m: m.group(0) if CITE.fullmatch(m.group(0)) else "", text)
 

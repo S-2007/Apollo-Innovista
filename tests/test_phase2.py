@@ -119,8 +119,31 @@ def _same_ids_writer(real):
 
 def test_normalize_citations():
     assert normalize_citations("A [S1, S3] and B [S2; S4].") == "A [S1][S3] and B [S2][S4]."
-    assert normalize_citations("Range [S1-S3] here [S5].") == "Range  here [S5]."
+    # A short range names each source; a long one is more likely a mistake and is still removed.
+    assert normalize_citations("Range [S1-S3] here [S5].") == "Range [S1][S2][S3] here [S5]."
+    assert normalize_citations("Range [S1-S9] here [S5].") == "Range  here [S5]."
     assert split_sentences("Yield rose 20%. [S2] Costs fell [S3].") == ["Yield rose 20%. [S2]", "Costs fell [S3]."]
+
+
+@pytest.mark.parametrize("raw,canonical", [
+    ("Fact 【S6】.", "Fact [S6]."),                 # gpt-oss writes these
+    ("Fact 【6†L1-L4】.", "Fact [S6]."),
+    ("Fact 【S1, S6】.", "Fact [S1][S6]."),
+    ("Fact [S6†L1-L4].", "Fact [S6]."),
+    ("Fact (S6).", "Fact [S6]."),
+    ("Fact (S1, S6).", "Fact [S1][S6]."),
+    ("Fact 【note】 stays.", "Fact 【note】 stays."),   # no id inside: untouched
+    ("Fact (see 2019).", "Fact (see 2019)."),        # ordinary parentheses: untouched
+])
+def test_other_citation_shapes_become_canonical(raw, canonical):
+    assert normalize_citations(raw) == canonical
+
+
+def test_correctly_cited_sentences_in_other_shapes_are_kept_but_unknown_ids_are_not():
+    errors: list[str] = []
+    kept = nodes.enforce_citations("Fact one 【S6】. Fact two (S2). Fact three 【S9】.", {"S2", "S6"}, errors, "w")
+    assert kept[:2] == ["Fact one [S6].", "Fact two [S2]."]
+    assert len(kept) == 2 and any("S9" in e for e in errors)  # an id the writer was not given is still removed
 
 
 # ---------------------------------------------------------------- HITL
