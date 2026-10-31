@@ -22,9 +22,9 @@ ENV HOME=/home/user \
 WORKDIR /home/user/app
 
 # CPU-only torch first (the default Linux wheel pulls GPU libraries worth several GB), then the rest.
-COPY --chown=user requirements.txt .
+COPY --chown=user backend/requirements.txt backend/requirements.txt
 RUN pip install --no-cache-dir --user torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu \
- && pip install --no-cache-dir --user -r requirements.txt
+ && pip install --no-cache-dir --user -r backend/requirements.txt
 
 COPY --chown=user . .
 COPY --chown=user --from=web /web/dist ./frontend/dist
@@ -33,4 +33,5 @@ COPY --chown=user --from=web /web/dist ./frontend/dist
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
 
 EXPOSE 7860
-CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "7860"]
+# The Python code lives in backend/; --app-dir puts it on the import path.
+CMD ["uvicorn", "api:app", "--app-dir", "backend", "--host", "0.0.0.0", "--port", "7860"]

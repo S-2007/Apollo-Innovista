@@ -531,48 +531,64 @@ sequenceDiagram
 
 ## 11. Project structure
 
+The repository is split by who runs the code: `backend/` (Python API and agents), `frontend/` (React app) and
+`docs/`. Inside `backend/`, each package has one job.
+
 ```
-Platform404/
-├── api.py                 FastAPI app: auth, runs, SSE, reports, evidence, metrics, persistence, heartbeats
-├── auth.py                accounts: scrypt hashing, JWT sessions, login rate limiting
-├── config.py              every setting, read from .env with safe defaults
-├── db.py                  SQLAlchemy tables (users, runs) and automatic column migration
-├── events.py              graph updates -> typed UI events
-├── llm.py                 one LLM client: fallback chain, quota cooldown, video transcription
-├── live.py                live events from inside nodes (drafts, claim progress)
-├── metering.py            per-run usage meter (LLM calls, tokens, searches, time)
-├── export.py              Markdown report export
-├── run_cli.py             command-line runner
-├── graph/
-│   ├── state.py           ResearchState and every record type
-│   ├── nodes.py           the agents: plan, search, review, decide, write, assemble, verify, quality
-│   └── workflow.py        the StateGraph and its edges
-├── tools/
-│   ├── search.py          Tavily / Serper with retries
-│   ├── extract.py         page text and publication dates
-│   ├── video.py           YouTube: link detection, captions, Gemini fallback, timestamps
-│   ├── passages.py        most relevant passages for a question
-│   ├── embed.py           embedding model (torch or ONNX), batching, cache
-│   ├── quality.py         research-quality rules and checks
-│   ├── text.py            citations, sentence splitting, normalisation
-│   ├── jsonparse.py       tolerant JSON parsing of model replies
-│   └── retry_policy.py    which errors are retried, which mean "quota spent"
-├── verify/claims.py       claim verification
-├── viz/contradictions.py  interactive conflict map (pyvis)
-├── scripts/               eval_verifier, check_citations, claim_runs, migrate_to_db
-├── tests/                 164 offline tests
-├── frontend/
+Apollo-Innovista/
+├── backend/                     Python 3.11: API, agents, verification
+│   ├── api.py                   FastAPI app (entry point): auth, runs, SSE, reports, evidence, metrics, heartbeats
+│   ├── run_cli.py               command-line runner
+│   ├── core/                    shared foundation, used by every other package
+│   │   ├── config.py            every setting, read from .env with safe defaults
+│   │   ├── db.py                SQLAlchemy tables (users, runs) and automatic column migration
+│   │   ├── auth.py              accounts: scrypt hashing, JWT sessions, login rate limiting
+│   │   ├── llm.py               LLM client: fallback chain, quota cooldown, video transcription
+│   │   ├── metering.py          per-run usage meter (LLM calls, tokens, searches, time)
+│   │   └── live.py              live events from inside the agents (drafts, claim progress)
+│   ├── graph/                   the agents (LangGraph)
+│   │   ├── state.py             ResearchState and every record type
+│   │   ├── nodes.py             plan, search, review, decide, write, assemble, verify, quality
+│   │   └── workflow.py          the StateGraph and its edges
+│   ├── tools/                   what the agents use
+│   │   ├── search.py            Tavily / Serper with retries
+│   │   ├── extract.py           page text and publication dates
+│   │   ├── video.py             YouTube: link detection, captions, Gemini fallback, timestamps
+│   │   ├── passages.py          most relevant passages for a question
+│   │   ├── embed.py             embedding model (torch or ONNX), batching, cache
+│   │   ├── quality.py           research-quality rules and checks
+│   │   ├── text.py              citations, sentence splitting, normalisation
+│   │   ├── jsonparse.py         tolerant JSON parsing of model replies
+│   │   └── retry_policy.py      which errors are retried, which mean "quota spent"
+│   ├── verify/claims.py         claim verification
+│   ├── reports/                 what a run produces for people
+│   │   ├── events.py            graph updates -> typed UI events
+│   │   ├── export.py            Markdown report export
+│   │   └── contradictions.py    interactive conflict map (pyvis)
+│   ├── scripts/                 eval_verifier, check_citations, claim_runs, migrate_to_db
+│   ├── tests/                   164 offline tests
+│   ├── requirements.txt         full install (PyTorch embeddings)
+│   └── requirements-render.txt  small servers (ONNX embeddings, no PyTorch)
+├── frontend/                    React 18 + Vite + TypeScript + Tailwind 4
 │   └── src/
-│       ├── pages/         the 11 pages and the live report
-│       ├── components/    agent strip, event log, topic form, approval panel, report view
-│       ├── api.ts         typed API client and event types
-│       ├── derive.ts      event list -> everything the UI shows
-│       └── index.css      design tokens and motion system
-├── Dockerfile             single container (Hugging Face Spaces, port 7860)
-├── Dockerfile.render      Render free tier (512 MB, ONNX embeddings)
-├── DEPLOY.md              step-by-step deployment
-└── PHASE_LOG.md           what was built and verified in each phase
+│       ├── pages/               the 11 pages and the live report
+│       ├── components/          agent strip, event log, topic form, approval panel, report view
+│       ├── api.ts               typed API client and event types
+│       ├── derive.ts            event list -> everything the UI shows
+│       └── index.css            design tokens and motion system
+├── docs/
+│   ├── DEPLOY.md                step-by-step deployment
+│   ├── DEMO.md                  demo script
+│   ├── demo-topics.md           demo topics served by /api/demo-topics
+│   └── PHASE_LOG.md             what was built and verified in each phase
+├── Dockerfile                   single container (Hugging Face Spaces, port 7860)
+├── Dockerfile.render            Render free tier (512 MB, ONNX embeddings)
+├── pytest.ini                   runs backend/tests from the repository root
+├── .env.example                 every setting, with placeholders
+└── README.md
 ```
+
+Local data (never committed): `.env` and `output/` (SQLite database, report exports) at the repository root.
 
 ## 12. Installation
 
@@ -600,14 +616,14 @@ Windows (PowerShell):
 
 ```powershell
 py -3.11 -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m pip install -r backend/requirements.txt
 ```
 
 macOS / Linux:
 
 ```bash
 python3.11 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -r backend/requirements.txt
 ```
 
 ### Step 3: keys and settings
@@ -635,11 +651,11 @@ cd ..
 
 ### Step 5: run
 
-Terminal 1, backend (project folder):
+Terminal 1, backend (from the repository root):
 
 ```bash
-.venv/Scripts/python -m uvicorn api:app --port 8000      # Windows
-.venv/bin/python -m uvicorn api:app --port 8000          # macOS / Linux
+.venv/Scripts/python -m uvicorn api:app --app-dir backend --port 8000      # Windows
+.venv/bin/python -m uvicorn api:app --app-dir backend --port 8000          # macOS / Linux
 ```
 
 Terminal 2, frontend:
@@ -663,7 +679,7 @@ Open **http://localhost:7860**. The image builds the UI and serves it from FastA
 
 ## 13. Configuration
 
-All settings live in `.env` and have safe defaults (`config.py`).
+All settings live in `.env` at the repository root and have safe defaults (`backend/core/config.py`).
 
 <details open>
 <summary><b>Keys and models</b></summary>
@@ -740,9 +756,9 @@ All settings live in `.env` and have safe defaults (`config.py`).
 **Command line**
 
 ```bash
-.venv/Scripts/python run_cli.py "Does remote work increase productivity?"
-.venv/Scripts/python run_cli.py "https://youtu.be/VIDEO_ID is this accurate?" --max-rounds 1
-.venv/Scripts/python run_cli.py "your topic" --hitl          # approve the plan and gap queries in the terminal
+.venv/Scripts/python backend/run_cli.py "Does remote work increase productivity?"
+.venv/Scripts/python backend/run_cli.py "https://youtu.be/VIDEO_ID is this accurate?" --max-rounds 1
+.venv/Scripts/python backend/run_cli.py "your topic" --hitl          # approve the plan and gap queries in the terminal
 ```
 
 Options: `--max-rounds`, `--timeout`, `--hitl`, `--no-gap-review`, `--out-dir`.
@@ -779,7 +795,7 @@ Every endpoint except `/api/auth/*` needs the session cookie.
 ## 16. Testing and evaluation
 
 ```bash
-.venv/Scripts/python -m pytest tests/ -q
+.venv/Scripts/python -m pytest -q          # from the repository root (pytest.ini points at backend/tests)
 ```
 
 All 164 tests run **offline**: search, pages, LLMs, embeddings and YouTube are fakes, and `conftest.py` blanks every
@@ -796,17 +812,17 @@ API key, so a test can never spend quota.
 | Accounts, database, heartbeats, migration | `test_auth.py`, `test_database.py` |
 | Embedding backends | `test_embed_backend.py` |
 
-**Verifier evaluation:** `scripts/eval_verifier.py` compares the verifier with hand-labelled claims. On 37 labelled
+**Verifier evaluation:** `backend/scripts/eval_verifier.py` compares the verifier with hand-labelled claims. On 37 labelled
 claims it agreed on 36. This figure is **optimistic**: the verifier was tuned on the same set, so a held-out test
 set is still needed.
 
-**Citation check:** `scripts/check_citations.py <run output folder>` reads that folder's `report.md` and
+**Citation check:** `backend/scripts/check_citations.py <run output folder>` reads that folder's `report.md` and
 `findings.json`, and fails unless every cited `[S#]` is a real source with a URL, every cited id is in References,
 and References lists nothing uncited.
 
 ## 17. Deployment
 
-[DEPLOY.md](DEPLOY.md) has step-by-step guides:
+[docs/DEPLOY.md](docs/DEPLOY.md) has step-by-step guides:
 
 - **Render** (free, no card): `Dockerfile.render`, tuned for 512 MB (ONNX embeddings, provider text first).
 - **Oracle Cloud VM** (always on): Docker plus Caddy for HTTPS.
@@ -839,6 +855,6 @@ runs.
 
 <div align="center">
 
-[S-2007/Apollo-Innovista](https://github.com/S-2007/Apollo-Innovista) · build history and verification notes in [PHASE_LOG.md](PHASE_LOG.md)
+[S-2007/Apollo-Innovista](https://github.com/S-2007/Apollo-Innovista) · build history and verification notes in [docs/PHASE_LOG.md](docs/PHASE_LOG.md)
 
 </div>

@@ -27,13 +27,17 @@ ENV PYTHONUNBUFFERED=1 \
     MALLOC_ARENA_MAX=2 \
     EMBED_BACKEND=onnx \
     PASSAGE_RANKING=keyword \
-    VERIFY_MAX_SENTENCES=12     EXTRACT_ORDER=provider_first     EXTRACT_WORKERS=2     MAX_PAGE_BYTES=1000000     EMBED_WARM_UP=true \
+    VERIFY_MAX_SENTENCES=12 \
+    EXTRACT_ORDER=provider_first \
+    EXTRACT_WORKERS=2 \
+    MAX_PAGE_BYTES=1000000 \
+    EMBED_WARM_UP=true \
     FASTEMBED_CACHE_PATH=/app/.fastembed \
     OUTPUT_DIR=/tmp/apollo-output
 WORKDIR /app
 
-COPY requirements-render.txt .
-RUN pip install --no-cache-dir -r requirements-render.txt
+COPY backend/requirements-render.txt backend/requirements-render.txt
+RUN pip install --no-cache-dir -r backend/requirements-render.txt
 
 COPY . .
 COPY --from=web /web/dist ./frontend/dist
@@ -41,5 +45,5 @@ COPY --from=web /web/dist ./frontend/dist
 # Fetch the embedding model at build time so the first research run does not wait for a download.
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='sentence-transformers/all-MiniLM-L6-v2')"
 
-# Render sets PORT (10000 by default).
-CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT:-10000}"]
+# Render sets PORT (10000 by default). The Python code lives in backend/; --app-dir puts it on the import path.
+CMD ["sh", "-c", "uvicorn api:app --app-dir backend --host 0.0.0.0 --port ${PORT:-10000}"]
