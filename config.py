@@ -80,12 +80,14 @@ MAX_GAP_QUERIES = 3        # cap on Hermes follow-up queries per round
 EXTRACT_MAX_CHARS = 12000  # cap on stored page text (LLMs see only selected passages, see tools/passages.py)
 MIN_CONTENT_CHARS = 200    # shorter extracts count as failed (use the fallback)
 MAX_PAGE_BYTES = 3_000_000 # stop downloading a page after this many bytes
-EXTRACT_WORKERS = 6        # pages extracted in parallel per round
+EXTRACT_WORKERS = _int("EXTRACT_WORKERS", 6)  # pages extracted in parallel per round (lower it on small servers)
 
 # --- Writing and verification (Phase 2) ---
 WRITE_CHARS_PER_SOURCE = 1200   # most relevant passages per source sent to the writer (TPM limit)
 HERMES_CHARS_PER_SOURCE = 400   # most relevant passages per source shown to Hermes
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+# "torch" (sentence-transformers, default) or "onnx" (fastembed: same model, no PyTorch, for 512 MB servers)
+EMBED_BACKEND = os.getenv("EMBED_BACKEND", "torch").strip().lower()
 EMBED_TIMEOUT_SECONDS = 120       # a stuck embedding call raises instead of hanging the run
 VERIFY_PARTIAL_SIM = 0.5        # cosine similarity for "partial": the source discusses the claim
 VERIFY_TOP_K = 5               # best-matching source sentences shown to the verifier LLM

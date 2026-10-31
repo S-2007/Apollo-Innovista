@@ -1,38 +1,55 @@
-# Deploying Apollo for free: Hugging Face Spaces + Neon
+# Deploying Apollo for free
 
-One Docker container (FastAPI serving the built React UI and the API on the same origin) on a free Hugging Face
-Space, with users and runs in a free Neon Postgres database. Free-plan limits change; check them when you sign up.
+One Docker container (FastAPI serving the built React UI and the API on the same origin), with users and runs in a
+free Neon Postgres database. Two free hosts; free-plan terms change, so check them when you sign up.
 
-**Why this pair:** the app needs ~2 GB RAM (torch + the embedding model). Hugging Face's free CPU Space has enough;
-most other free web hosts stop at 512 MB. The Space's disk is wiped on restart, so data lives in Neon.
+| | **A. Render (no card)** | **B. Oracle Cloud Always Free VM** |
+|---|---|---|
+| Card needed | No | Yes (identity check; Always Free is not charged) |
+| RAM | 512 MB: uses `Dockerfile.render` (no PyTorch; same embedding model via ONNX) | up to 24 GB: uses `Dockerfile` |
+| Idle | Sleeps after ~15 min without visits; first visit then takes about a minute | Always on |
+| HTTPS / URL | Automatic, `https://<name>.onrender.com` | You set up DuckDNS + Caddy |
+| Setup time | ~20 min | ~1 hour |
 
-**Limits of the free plans:** the Space sleeps after a long idle period (about 48 h) and takes 1–2 minutes to wake;
-Neon suspends an idle database and the first query after that is a little slower.
+Both need the Neon step (1) first.
 
 ---
 
 ## 1. Neon (database)
 
-1. Sign up at https://neon.tech → **New Project** → region **AWS Asia Pacific (Singapore)**.
-2. **Connect** → turn **Connection pooling off** → copy the connection string
-   (`postgresql://USER:PASSWORD@ep-....neon.tech/neondb?sslmode=require`).
-3. Put it in your local `.env` (never commit it):
-   ```
-   DATABASE_URL=postgresql://USER:PASSWORD@ep-....neon.tech/neondb?sslmode=require
-   ```
-4. Copy your local accounts and runs into Neon (same email and password keep working):
+1. https://neon.tech → **New Project** → region **AWS Asia Pacific 1 (Singapore)** → only **Postgres database** on.
+   Skip the "agent prompt"; this app only needs the connection string.
+2. **Connect** → **Connection pooling off** → copy the string
+   (`postgresql://USER:PASSWORD@ep-....neon.tech/neondb?sslmode=require...`).
+3. Locally, put it in `.env` as `DATABASE_URL=...` and copy your local data across once:
    ```powershell
    .venv\Scripts\python scripts\migrate_to_db.py
    ```
-5. Check: Neon console → **Tables** shows `users` and `runs`.
 
-## 2. Hugging Face Space (app)
+## A. Render (free, no card)
 
-1. Sign up at https://huggingface.co → **New Space** → SDK **Docker** → template **Blank** →
-   hardware **CPU basic (free)** → **Create Space**.
-2. Space → **Settings → Variables and secrets** → add each as a **secret**:
+`Dockerfile.render` installs `requirements-render.txt` (no PyTorch) and sets `EMBED_BACKEND=onnx`: the same
+all-MiniLM-L6-v2 model runs through ONNX Runtime. On a saved run it produced identical vectors, the same best-matching
+sentences and the same verification decisions as the PyTorch version.
 
-   | Name | Value |
+**Memory is tight.** Measured on Windows: about 300 MB peak for the app plus embedding 2,000 sentences, and 457–540 MB
+peak during full research runs. Linux (Render) usually uses less, and the image sets `MALLOC_ARENA_MAX=2` to curb heap
+growth, but this has not been measured on Linux. If Render's **Events** tab shows "Ran out of memory", the free plan is
+too small for this app: use option B (Oracle), a paid Render instance, or run it on your own PC.
+
+1. Push the latest code to GitHub (`git push origin main`).
+2. Sign up at https://render.com with **GitHub** (the free plan does not ask for a card).
+3. **New → Web Service** → **Build and deploy from a Git repository** → pick `S-2007/Apollo-Innovista`.
+4. Settings:
+   - **Name:** `apollo` (gives `https://apollo-xxxx.onrender.com`)
+   - **Region:** **Singapore** (next to Neon)
+   - **Branch:** `main`
+   - **Language / Runtime:** **Docker**
+   - **Dockerfile Path:** `./Dockerfile.render`
+   - **Instance Type:** **Free**
+5. **Environment Variables** → add each (values without quotes):
+
+   | Key | Value |
    |---|---|
    | `GROQ_API_KEY`, `GEMINI_API_KEY`, `TAVILY_API_KEY`, `SERPER_API_KEY` | your keys |
    | `JWT_SECRET` | a new long random string (`python -c "import secrets;print(secrets.token_urlsafe(48))"`) |
@@ -40,39 +57,116 @@ Neon suspends an idle database and the first query after that is a little slower
    | `COOKIE_SECURE` | `true` |
    | `LLM_PROVIDER` | `groq` |
 
-3. Hugging Face → **Settings → Access Tokens** → create a **Write** token (used as the password when pushing).
+6. **Advanced → Health Check Path:** `/`
+7. **Create Web Service.** The first build takes 5–10 minutes (Logs tab). When it says **Live**, open the
+   `https://….onrender.com` link at the top and sign in with your existing account.
 
-## 3. Push the code
+Every `git push origin main` redeploys automatically. On the free plan the service sleeps after about 15 minutes
+without visits; the next visit wakes it in about a minute. Finished runs are safe in Neon; a run in progress when it
+goes to sleep is lost.
 
+---
+
+## B. Oracle Cloud VM (always on; needs a card)
+
+### B1. Create the VM
+
+1. Sign up at https://www.oracle.com/cloud/free/ . The **home region** you pick is permanent and Always Free VMs
+   live there: choose **Singapore** (next to Neon) or **Mumbai / Hyderabad**.
+2. Console → **Compute → Instances → Create instance**:
+   - **Image:** Canonical **Ubuntu 24.04**
+   - **Shape:** **Ampere → VM.Standard.A1.Flex**, **2 OCPU / 12 GB** (up to 4 / 24 is free).
+     "Out of capacity" is common: retry later, try another availability domain, or use 1 OCPU / 6 GB.
+   - **Networking:** create a new VCN with a **public subnet**, **assign a public IPv4 address**.
+   - **SSH keys:** **Generate a key pair** → **Save private key** (e.g. `C:\Users\<you>\.ssh\oracle.key`).
+   - **Create**, then copy the instance's **Public IP address**.
+3. Open the web ports in Oracle's firewall: instance page → **Subnet** link → **Security Lists** → the default list →
+   **Add Ingress Rules**: source `0.0.0.0/0`, TCP, destination port `80`; add another for `443`.
+
+### B2. A free domain name (for HTTPS)
+
+1. https://www.duckdns.org → sign in → create a subdomain (e.g. `apollo-s2007`) → set **current ip** to the VM's
+   public IP → **update ip**. Your site will be `https://apollo-s2007.duckdns.org`.
+
+### B3. Set up the server
+
+From PowerShell on your PC:
 ```powershell
-git remote add space https://huggingface.co/spaces/<username>/<space-name>
-git push space main
+ssh -i C:\Users\<you>\.ssh\oracle.key ubuntu@<PUBLIC_IP>
 ```
-Username = your Hugging Face username, password = the Write token. Watch the **Logs** tab; the first build takes
-about 10–15 minutes (it builds the frontend, installs CPU-only torch and downloads the embedding model).
+(If SSH refuses the key as "too open": `icacls C:\Users\<you>\.ssh\oracle.key /inheritance:r /grant:r "$($env:USERNAME):R"`.)
 
-To update later: commit, then `git push space main` (and `git push origin main` for GitHub).
+Then on the VM:
+```bash
+# Ubuntu images on Oracle block ports with iptables: open 80 and 443
+sudo iptables -I INPUT 6 -p tcp --dport 80 -j ACCEPT
+sudo iptables -I INPUT 6 -p tcp --dport 443 -j ACCEPT
+sudo netfilter-persistent save
 
-## 4. Open the app
+# Docker
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker ubuntu
+exit
+```
+SSH in again (so the docker group applies), then:
+```bash
+git clone https://github.com/S-2007/Apollo-Innovista.git apollo   # private repo: use a GitHub token as the password
+cd apollo
+nano .env
+```
+Paste the server's settings, **one per line, no quotes around values** (Docker's `--env-file` keeps quotes):
+```
+GROQ_API_KEY=...
+GEMINI_API_KEY=...
+TAVILY_API_KEY=...
+SERPER_API_KEY=...
+LLM_PROVIDER=groq
+JWT_SECRET=<a new long random string>
+DATABASE_URL=postgresql://...neon.tech/neondb?sslmode=require
+COOKIE_SECURE=true
+```
+Save (Ctrl+O, Enter, Ctrl+X), then build and start (the first build takes 10–20 minutes):
+```bash
+docker build -t apollo .
+docker run -d --name apollo --restart unless-stopped --env-file .env -p 127.0.0.1:7860:7860 apollo
+docker logs -f apollo        # wait for "Uvicorn running", then Ctrl+C
+```
 
-Open **`https://<username>-<space-name>.hf.space`** directly. Inside the Space page on huggingface.co the app runs
-in a cross-site frame, where browsers do not send the login cookie, so sign-in only works on the direct link.
+### B4. HTTPS with Caddy
+
+```bash
+sudo apt-get install -y caddy
+echo 'apollo-s2007.duckdns.org {
+    reverse_proxy 127.0.0.1:7860
+}' | sudo tee /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+Caddy gets a free Let's Encrypt certificate by itself (ports 80/443 must be open). Open
+**https://apollo-s2007.duckdns.org** and sign in with your existing account.
+
+### B5. Updating later
+
+```bash
+cd ~/apollo && git pull
+docker build -t apollo . && docker rm -f apollo
+docker run -d --name apollo --restart unless-stopped --env-file .env -p 127.0.0.1:7860:7860 apollo
+```
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| Build fails installing `torch==2.15.0` | In `Dockerfile` change it to plain `torch` (latest CPU build) |
-| "Cannot reach the backend" / errors in Logs | A secret is missing or misspelled; compare with the table above |
-| Sign-in does not stick | Use the direct `.hf.space` link; check `COOKIE_SECURE=true` |
-| Security page says "local SQLite" | `DATABASE_URL` secret is missing; data would be lost on restart |
-| App asleep | Open the link and wait 1–2 minutes |
+| "Out of capacity" creating the VM | Retry later / other availability domain / smaller shape (1 OCPU, 6 GB) |
+| Site does not load at all | Security List rules for 80/443, the iptables commands, DuckDNS IP = VM public IP |
+| Build fails installing `torch==2.15.0` | In `Dockerfile` change it to plain `torch` |
+| Container exits | `docker logs apollo`; usually a missing or quoted value in `.env` |
+| Sign-in does not stick | Use the `https://` address; `COOKIE_SECURE=true` needs HTTPS |
+| Security page says "local SQLite" | `DATABASE_URL` missing from the server's `.env`; data would be lost on rebuild |
 
 ## What the repo provides for this
 
 - `Dockerfile`: builds the frontend, installs CPU-only torch, pre-downloads the embedding model, runs uvicorn on
-  port 7860 as user 1000 (Spaces' requirements).
+  port 7860 (works on ARM and x86).
 - `.dockerignore`: keeps `.env`, `output/` and local databases out of the image.
-- `api.py`: serves `frontend/dist` on `/` when it exists (production), after all `/api` routes.
-- `README.md` front matter (`sdk: docker`, `app_port: 7860`): tells Hugging Face how to run the Space.
-- `scripts/migrate_to_db.py`: one-time copy of local data into `DATABASE_URL`.
+- `api.py`: serves `frontend/dist` on `/` when it exists, after all `/api` routes.
+- `scripts/migrate_to_db.py`: one-time copy of local accounts and runs into `DATABASE_URL`.

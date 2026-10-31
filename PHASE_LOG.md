@@ -517,3 +517,21 @@ exists. Local development is unchanged (Vite on 5173 proxies `/api`).
 backend on 8000, `/` serves the app (sign-in screen), `/assets/*.js` 200, `/api/auth/me` and `/api/runs` 401, Vite
 dev on 5173 still works.
 **Not verified:** the Docker build itself (Docker is not installed on this machine) and a live Neon database.
+
+## Phase 3.12: torch-free build for Render's free plan (2026-10-31)
+
+**Why:** Hugging Face now charges for Docker Spaces; Oracle's free VM needs a card. Render's free web service needs no
+card but has 512 MB RAM, too little for PyTorch.
+**Tried and rejected:** Gemini embeddings. The free tier allows 100 embedded texts per minute
+(`EmbedContentRequestsPerMinute…FreeTier = 100`, each text in a batch counts); a run embeds about 2,000 sentences.
+**Change (default behaviour unchanged):** `EMBED_BACKEND` in config (`torch` default; `onnx` = fastembed 0.9.1 running the
+same all-MiniLM-L6-v2 through ONNX Runtime, batch 32, 2 threads). `requirements-render.txt` (no torch /
+sentence-transformers / pytest), `Dockerfile.render` (sets `EMBED_BACKEND=onnx`, `MALLOC_ARENA_MAX=2`, pre-downloads the
+ONNX model, listens on `$PORT`), `EXTRACT_WORKERS` now overridable by env (default 6). DEPLOY.md: Render (A) and
+Oracle (B).
+**Checks:** `pytest` 95 passed (2 new: onnx backend uses fastembed with low-memory settings and normalises; the default
+backend never imports fastembed). In a separate torch-free venv: ONNX vs torch on a saved run's 15 claims × 150
+sentences: vector cosine 1.0000, identical best-matching sentences and partial decisions; app + 2,000 sentences peak
+301 MB; a real Focused run completed (15 sources, 5/5 sections, 17 claims: 6 verified, 11 partial).
+**Risk:** full-run peaks of 457–540 MB on Windows (working set). Not measured on Linux (no Docker/WSL here); Render's
+512 MB may be too small. A second test run was slow only because Groq's daily quota was spent and Gemini returned 503s.
