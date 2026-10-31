@@ -27,7 +27,7 @@ from llm import chat as llm_chat
 from tools.embed import embed
 from tools.jsonparse import parse_json
 from tools.retry_policy import is_quota_exhausted
-from tools.text import find_citations, split_sentences, strip_citations
+from tools.text import find_citations, split_sentences, strip_citations, top_by_keywords
 
 VERIFY_SYSTEM = (
     "You check whether a source text supports a claim. Judge ONLY from the source text given; "
@@ -56,7 +56,6 @@ def _source_sentences(finding: dict) -> list[str]:
 def verify_report(report: str, findings: list[dict], errors: list[str]) -> list[dict]:
     by_id = {f["id"]: f for f in findings}
     claims = report_claims(report)
-    sentence_cache: dict[str, tuple[list[str], object]] = {}
     results = []
     # Shared by all claims: a model whose daily quota is spent is removed for the rest of the report.
     models = _available_chain()
@@ -79,12 +78,12 @@ def verify_report(report: str, findings: list[dict], errors: list[str]) -> list[
 
         supported = False
         for sid in ids:
-            if sid not in sentence_cache:
-                sents = _source_sentences(by_id[sid])
-                sentence_cache[sid] = (sents, embed(sents) if sents else None)
-            sents, vecs = sentence_cache[sid]
+            # On slow hosts only the sentences sharing the most words with the claim are compared
+            # (VERIFY_MAX_SENTENCES > 0). tools.embed caches each sentence's vector for the whole run.
+            sents = top_by_keywords(_source_sentences(by_id[sid]), strip_citations(claim), config.VERIFY_MAX_SENTENCES)
             if not sents:
                 continue
+            vecs = embed(sents)
             sims = vecs @ claim_vec
             best = int(sims.argmax())
             if float(sims[best]) > result["similarity"]:

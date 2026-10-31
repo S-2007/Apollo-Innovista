@@ -19,6 +19,7 @@ embed() hands the work to that thread and waits for the result. The slow LLM
 calls in the writers still run in parallel; only embedding is single-threaded.
 """
 
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -63,5 +64,28 @@ def _encode(texts: list[str]):
     return _model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
 
 
+# text -> its vector. The same sentences are embedded for Hermes' passages, the section writers and
+# claim verification; each is now computed once per run. Same model, same vectors: only the repeat
+# work goes away (it dominates on small servers such as Render's 0.1 CPU).
+_vectors: dict[str, np.ndarray] = {}
+_cache_lock = threading.Lock()
+MAX_CACHED = 50_000  # about 75 MB of float32 vectors; cleared at the start of every run anyway
+
+
+def clear_cache() -> None:
+    with _cache_lock:
+        _vectors.clear()
+
+
 def embed(texts: list[str]):
-    return _worker.submit(_encode, texts).result(timeout=config.EMBED_TIMEOUT_SECONDS)
+    with _cache_lock:
+        have = {t: _vectors[t] for t in texts if t in _vectors}
+    missing = [t for t in dict.fromkeys(texts) if t not in have]
+    if missing:
+        new = dict(zip(missing, _worker.submit(_encode, missing).result(timeout=config.EMBED_TIMEOUT_SECONDS)))
+        have.update(new)
+        with _cache_lock:
+            if len(_vectors) + len(new) > MAX_CACHED:
+                _vectors.clear()
+            _vectors.update(new)
+    return np.array([have[t] for t in texts])

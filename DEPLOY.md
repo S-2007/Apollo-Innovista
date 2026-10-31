@@ -32,6 +32,11 @@ Both need the Neon step (1) first.
 all-MiniLM-L6-v2 model runs through ONNX Runtime. On a saved run it produced identical vectors, the same best-matching
 sentences and the same verification decisions as the PyTorch version.
 
+**CPU is tiny (0.1).** So the Render image also sets `PASSAGE_RANKING=keyword` (Hermes and the writers get
+passages chosen by shared words instead of embeddings) and `VERIFY_MAX_SENTENCES=30`. Without them a run sat in the
+Review stage for minutes while every sentence was embedded. Claim verification still uses embeddings; on a saved run
+its partial/not-found decisions were the same for 17 of 17 claims. Runs are still slower than on a laptop.
+
 **Memory is tight.** Measured on Windows: about 300 MB peak for the app plus embedding 2,000 sentences, and 457–540 MB
 peak during full research runs. Linux (Render) usually uses less, and the image sets `MALLOC_ARENA_MAX=2` to curb heap
 growth, but this has not been measured on Linux. If Render's **Events** tab shows "Ran out of memory", the free plan is

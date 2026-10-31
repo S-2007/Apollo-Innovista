@@ -3,6 +3,10 @@
 # Measured on Windows with requirements-render.txt: ~300 MB peak embedding 2,000 sentences, 457-540 MB peak
 # during full research runs (Windows working set). Not yet measured on Linux; 512 MB is tight.
 # MALLOC_ARENA_MAX=2 limits glibc's per-thread heaps, which otherwise inflate a multi-threaded Python process.
+# Render free has 0.1 CPU: embedding every sentence of every source before Hermes' review took minutes there.
+# PASSAGE_RANKING=keyword picks passages by shared words (no embedding) and VERIFY_MAX_SENTENCES=30 compares
+# each claim with its 30 best keyword matches per source. On a saved run: 0 instead of 1,124 sentences embedded
+# before the review, 398 instead of 1,179 in total, and the same partial/not-found decisions for 17 of 17 claims.
 # Secrets (API keys, JWT_SECRET, DATABASE_URL) come from the host's environment, never from this image.
 
 # 1) Build the frontend
@@ -18,6 +22,8 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 \
     MALLOC_ARENA_MAX=2 \
     EMBED_BACKEND=onnx \
+    PASSAGE_RANKING=keyword \
+    VERIFY_MAX_SENTENCES=30 \
     FASTEMBED_CACHE_PATH=/app/.fastembed \
     OUTPUT_DIR=/tmp/apollo-output
 WORKDIR /app

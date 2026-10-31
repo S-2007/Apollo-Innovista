@@ -535,3 +535,20 @@ sentences: vector cosine 1.0000, identical best-matching sentences and partial d
 301 MB; a real Focused run completed (15 sources, 5/5 sections, 17 claims: 6 verified, 11 partial).
 **Risk:** full-run peaks of 457–540 MB on Windows (working set). Not measured on Linux (no Docker/WSL here); Render's
 512 MB may be too small. A second test run was slow only because Groq's daily quota was spent and Gemini returned 503s.
+
+## Phase 3.13: runs no longer stall in Review on Render (2026-10-31)
+
+**Reported:** on Render the run gets stuck at the Review stage.
+**Cause (from saved runs' events and meter):** Hermes' LLM call takes 1–18 s, but 8–54 s passed between the last
+search and the review event on a laptop: building Hermes' prompt embeds every sentence of every source (~1,100) to pick
+passages. On Render's 0.1 CPU that is minutes. Verification then re-embedded most of the same sentences.
+**Fix:** (1) `tools/embed.py` caches each text's vector for the run (cleared at run start; thread-safe), so no sentence is
+embedded twice; same vectors, everywhere. (2) `PASSAGE_RANKING=keyword` (passages chosen by shared words, no embedding)
+and (3) `VERIFY_MAX_SENTENCES=N` (each claim compared with its N best keyword matches per source); both default off and
+are set only in `Dockerfile.render` (keyword, 30).
+**Measured on a saved 21-source run (ONNX):** local settings embed 1,124 sentences before the review and 1,179 in total
+(the cache removed verification's repeats); Render settings embed 0 before the review and 398 in total. Verification:
+same partial/not-found decision for 17/17 claims, same best-matching sentence for 15/17. Hermes' excerpts differ for
+18/21 sources (keyword vs embedding pick different sentences), so Render's coverage verdicts can differ from local ones.
+**Checks:** `pytest` 98 passed (new: embed cache computes each text once and keeps order; keyword ranking never embeds;
+verification keyword limit keeps the best matches in source order).

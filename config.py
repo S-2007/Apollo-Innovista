@@ -85,6 +85,11 @@ EXTRACT_WORKERS = _int("EXTRACT_WORKERS", 6)  # pages extracted in parallel per 
 # --- Writing and verification (Phase 2) ---
 WRITE_CHARS_PER_SOURCE = 1200   # most relevant passages per source sent to the writer (TPM limit)
 HERMES_CHARS_PER_SOURCE = 400   # most relevant passages per source shown to Hermes
+# How source passages are chosen for Hermes and the writers: "embedding" (default) or "keyword"
+# (no embedding; for slow hosts such as Render free). Claim verification always uses embeddings.
+PASSAGE_RANKING = os.getenv("PASSAGE_RANKING", "embedding").strip().lower()
+# Sentences per cited source compared with each claim, picked by shared words; 0 = all (default).
+VERIFY_MAX_SENTENCES = _int("VERIFY_MAX_SENTENCES", 0)
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 # "torch" (sentence-transformers, default) or "onnx" (fastembed: same model, no PyTorch, for 512 MB servers)
 EMBED_BACKEND = os.getenv("EMBED_BACKEND", "torch").strip().lower()

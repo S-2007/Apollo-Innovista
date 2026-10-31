@@ -77,3 +77,23 @@ def sentence_key(sentence: str) -> str:
 
 def int_id(source_id: str) -> int:
     return int(source_id[1:])
+
+
+_KEYWORD = re.compile(r"[a-z0-9]+")
+
+
+def keyword_scores(sentences: list[str], query: str) -> list[int]:
+    """How many distinct query words (longer than 3 letters) each sentence contains.
+
+    A cheap stand-in for embedding similarity where computing embeddings is too slow."""
+    words = {w for w in _KEYWORD.findall(query.lower()) if len(w) > 3}
+    return [len(words & set(_KEYWORD.findall(s.lower()))) for s in sentences]
+
+
+def top_by_keywords(sentences: list[str], query: str, limit: int) -> list[str]:
+    """The `limit` sentences sharing the most query words (ties: earlier first), kept in source order."""
+    if limit <= 0 or len(sentences) <= limit:
+        return sentences
+    scores = keyword_scores(sentences, query)
+    best = sorted(range(len(sentences)), key=lambda i: (-scores[i], i))[:limit]
+    return [sentences[i] for i in sorted(best)]
