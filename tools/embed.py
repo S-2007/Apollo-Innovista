@@ -33,11 +33,13 @@ _worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="embed")
 class _OnnxModel:
     """fastembed's TextEmbedding behind the same encode() call as SentenceTransformer.
 
-    Small batches and two threads keep memory low: with fastembed's defaults (batch 256) the
-    process peaked at 461 MB embedding 2,000 sentences; with these it peaks around 225 MB for the
-    model, at about 10 s per 2,000 sentences."""
+    Texts are embedded shortest first in batches of 8, then put back in order. A batch is padded to
+    its longest text, and ONNX Runtime keeps memory for every batch shape it has seen, so mixed
+    lengths in big batches cost both. Measured on 1,100 source sentences (after loading the model):
+    batch 32 in input order: +327 MB peak (kept), 25.9 CPU-s; sorted, batch 8: +47 MB, 12.1 CPU-s;
+    identical vectors (cosine 1.000000)."""
 
-    BATCH_SIZE = 32
+    BATCH_SIZE = 8
     THREADS = 2
 
     def __init__(self, name: str):
@@ -46,7 +48,10 @@ class _OnnxModel:
         self._model = TextEmbedding(model_name=name, threads=self.THREADS)
 
     def encode(self, texts: list[str], normalize_embeddings: bool = True, show_progress_bar: bool = False):
-        vecs = np.array(list(self._model.embed(texts, batch_size=self.BATCH_SIZE)), dtype=np.float32)
+        order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
+        out = np.array(list(self._model.embed([texts[i] for i in order], batch_size=self.BATCH_SIZE)), dtype=np.float32)
+        vecs = np.empty_like(out)
+        vecs[order] = out
         if normalize_embeddings and len(vecs):
             vecs /= np.linalg.norm(vecs, axis=1, keepdims=True)
         return vecs
@@ -70,6 +75,13 @@ def _encode(texts: list[str]):
 _vectors: dict[str, np.ndarray] = {}
 _cache_lock = threading.Lock()
 MAX_CACHED = 50_000  # about 75 MB of float32 vectors; cleared at the start of every run anyway
+
+
+def warm_up() -> None:
+    """Load the model in the background (no-op once loaded). Called when a run starts, so the
+    2.9 CPU-seconds of loading (about 30 s on Render's 0.1 CPU) overlap planning and search, which
+    mostly wait on the network, instead of delaying claim verification."""
+    _worker.submit(_encode, ["warm up"])
 
 
 def clear_cache() -> None:

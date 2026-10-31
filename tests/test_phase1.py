@@ -12,6 +12,7 @@ import pytest
 
 import config
 from graph import nodes
+from graph.state import initial_state
 from graph.workflow import run_research
 from tools import extract as extract_mod
 from tools import passages as passages_mod
@@ -115,16 +116,29 @@ def test_wall_clock_timeout_terminates(monkeypatch):
     monkeypatch.setattr(nodes, "llm_chat", fake_llm(reply))
 
     def slow_search(q, errors):
-        time.sleep(0.6)
+        time.sleep(1.2)
         return fake_search()(q, errors)
 
     monkeypatch.setattr(nodes, "web_search", slow_search)
 
+    started = time.time()
     final = run_research("topic", max_rounds=5, timeout_seconds=1)
 
     assert final["stop_reason"] == "timeout"
     assert final["round_no"] == 1
-    assert any("timeout" in e for e in final["errors"])
+    assert len(final["searched_queries"]) == 3
+    assert time.time() - started < 3  # the 3 searches ran at once (one after another: 3.6 s)
+
+
+def test_search_skipped_after_timeout(monkeypatch):
+    monkeypatch.setattr(nodes, "web_search", lambda q, errors: pytest.fail("searched after the deadline"))
+    state = initial_state("topic", max_rounds=2, timeout_seconds=1, started_at=time.time() - 5)
+    state["pending_queries"] = [{"section": 0, "query": "q one"}]
+
+    out = nodes.athena_search(state)
+
+    assert out["searched_queries"] == []
+    assert any("timeout" in e for e in out["errors"])
 
 
 def test_plan_falls_back_to_topic_on_bad_json(monkeypatch):
@@ -232,6 +246,20 @@ def test_parallel_extraction_keeps_ids_stable(monkeypatch):
 
 def test_fallback_text_keeps_line_breaks(monkeypatch):
     monkeypatch.setattr(extract_mod, "extract_text", lambda url, errors: "")
-    raw = "Heading line\n\n   First paragraph   with  spaces. " + "x " * 120 + "\nSecond paragraph."
+    raw = "Heading line:\n\n   First paragraph   with  spaces. " + "x " * 120 + "\nSecond paragraph."
     text, method = extract_mod.page_content("https://x", raw, [])
-    assert method == "tavily_raw" and text.startswith("Heading line\nFirst paragraph with spaces.")
+    assert method == "tavily_raw" and text.startswith("Heading line:\nFirst paragraph with spaces.")
+
+
+def test_provider_text_drops_menus_and_can_go_first(monkeypatch):
+    calls = []
+    monkeypatch.setattr(extract_mod, "extract_text", lambda url, errors: calls.append(url) or "own text " * 50)
+    body = "A real sentence about the topic that is long enough to keep. " * 5
+    raw = "Home\nDonate\nHome\nWhat is it?\n" + body + "\nDonate"
+
+    assert extract_mod.page_content("https://x", raw, [])[1] == "trafilatura"  # default: own extraction first
+    monkeypatch.setattr(config, "EXTRACT_ORDER", "provider_first")
+    text, method = extract_mod.page_content("https://y", raw, [])
+
+    assert method == "tavily_raw" and calls == ["https://x"]  # no download when the provider's text suffices
+    assert text == "What is it?\n" + body.strip()

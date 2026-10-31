@@ -79,8 +79,13 @@ PAGES_PER_QUERY = 3        # top results whose full page text is extracted
 MAX_GAP_QUERIES = 3        # cap on Hermes follow-up queries per round
 EXTRACT_MAX_CHARS = 12000  # cap on stored page text (LLMs see only selected passages, see tools/passages.py)
 MIN_CONTENT_CHARS = 200    # shorter extracts count as failed (use the fallback)
-MAX_PAGE_BYTES = 3_000_000 # stop downloading a page after this many bytes
+MAX_PAGE_BYTES = _int("MAX_PAGE_BYTES", 3_000_000)  # stop downloading a page after this many bytes
 EXTRACT_WORKERS = _int("EXTRACT_WORKERS", 6)  # pages extracted in parallel per round (lower it on small servers)
+SEARCH_WORKERS = _int("SEARCH_WORKERS", 5)  # web searches run at once per round (each waits on the API)
+# Which page text Athena tries first: "own" (default: download + trafilatura, then the search provider's
+# text) or "provider_first" (Tavily's page text when it has enough, download + trafilatura only for the
+# rest). provider_first skips most downloads and HTML parsing, the slowest step on Render free's 0.1 CPU.
+EXTRACT_ORDER = os.getenv("EXTRACT_ORDER", "own").strip().lower()
 
 # --- Writing and verification (Phase 2) ---
 WRITE_CHARS_PER_SOURCE = 1200   # most relevant passages per source sent to the writer (TPM limit)
@@ -93,6 +98,8 @@ VERIFY_MAX_SENTENCES = _int("VERIFY_MAX_SENTENCES", 0)
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 # "torch" (sentence-transformers, default) or "onnx" (fastembed: same model, no PyTorch, for 512 MB servers)
 EMBED_BACKEND = os.getenv("EMBED_BACKEND", "torch").strip().lower()
+# Load the embedding model in the background when a run starts (tools/embed.warm_up). On for Render.
+EMBED_WARM_UP = os.getenv("EMBED_WARM_UP", "false").strip().lower() == "true"
 EMBED_TIMEOUT_SECONDS = 120       # a stuck embedding call raises instead of hanging the run
 VERIFY_PARTIAL_SIM = 0.5        # cosine similarity for "partial": the source discusses the claim
 VERIFY_TOP_K = 5               # best-matching source sentences shown to the verifier LLM

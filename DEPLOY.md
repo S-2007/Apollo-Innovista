@@ -36,11 +36,14 @@ sentences and the same verification decisions as the PyTorch version.
 passages chosen by shared words instead of embeddings) and `VERIFY_MAX_SENTENCES=12`. Without them a run sat in the
 Review stage for minutes while every sentence was embedded. Claim verification still uses embeddings, checks 4 claims
 at a time and shows live progress; over 115 saved claims its partial/not-found decisions were the same for 115.
-Runs are still slower than on a laptop.
+`EXTRACT_ORDER=provider_first` uses the page text Tavily already returns instead of downloading and parsing every page
+(6.6 CPU-seconds, about a minute on Render, for 15 pages; now near 0), and `EMBED_WARM_UP=true` loads the embedding
+model while the run plans and searches. Runs are still slower than on a laptop.
 
-**Memory is tight.** Measured on Windows: about 300 MB peak for the app plus embedding 2,000 sentences, and 457–540 MB
-peak during full research runs. Linux (Render) usually uses less, and the image sets `MALLOC_ARENA_MAX=2` to curb heap
-growth, but this has not been measured on Linux. If Render's **Events** tab shows "Ran out of memory", the free plan is
+**Memory is tight.** ONNX Runtime kept memory for every batch shape it embedded: verification took a run from about
+250 MB to 584 MB, over the 512 MB limit, and Render restarted the server ("This run was interrupted because the server
+restarted"). Embedding now goes shortest text first in batches of 8: the same 1,100 sentences add 45 MB instead of
+325 MB (Windows, identical vectors). The image also sets `MALLOC_ARENA_MAX=2`. Not yet measured on Linux. If Render's **Events** tab shows "Ran out of memory", the free plan is
 too small for this app: use option B (Oracle), a paid Render instance, or run it on your own PC.
 
 1. Push the latest code to GitHub (`git push origin main`).

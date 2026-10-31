@@ -35,7 +35,29 @@ def test_onnx_backend_uses_fastembed_and_normalises(monkeypatch):
     vecs = embed_mod.embed(["a", "b"])
     assert vecs.shape == (2, 2) and np.allclose(np.linalg.norm(vecs, axis=1), 1.0)
     assert np.allclose(vecs[0], [0.6, 0.8])
-    assert seen == {"model": config.EMBED_MODEL, "threads": 2, "batch_size": 32}  # low-memory settings
+    assert seen == {"model": config.EMBED_MODEL, "threads": 2, "batch_size": 8}  # low-memory settings
+
+
+def test_onnx_backend_embeds_shortest_first_and_keeps_input_order(monkeypatch):
+    sent = []
+
+    class FakeTextEmbedding:
+        def __init__(self, model_name, threads=None):
+            pass
+
+        def embed(self, texts, batch_size=256):
+            sent.extend(texts)
+            return iter([np.array([float(len(t)), 1.0]) for t in texts])  # vector tells which text it was
+
+    monkeypatch.setitem(sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=FakeTextEmbedding))
+    monkeypatch.setattr(config, "EMBED_BACKEND", "onnx")
+    texts = ["a much longer sentence", "short", "medium text"]
+    vecs = embed_mod.embed(texts)
+
+    assert sent == ["short", "medium text", "a much longer sentence"]  # less padding per batch
+    expected = np.array([[len(t), 1.0] for t in texts])
+    expected /= np.linalg.norm(expected, axis=1, keepdims=True)
+    assert np.allclose(vecs, expected)  # results come back in the caller's order
 
 
 def test_default_backend_is_sentence_transformers(monkeypatch):

@@ -27,6 +27,7 @@ import config
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ApolloResearchBot/0.1)"}
 _HTML_TYPES = ("text/html", "application/xhtml+xml")
+MENU_LINE_CHARS = 40  # shorter lines without sentence punctuation are treated as menu items
 
 
 def extract_text(url: str, errors: list[str]) -> str:
@@ -54,15 +55,31 @@ def extract_text(url: str, errors: list[str]) -> str:
     return text[: config.EXTRACT_MAX_CHARS]
 
 
+def _clean_raw(raw_content: str) -> str:
+    # Collapse spaces but keep line breaks: they mark headings/paragraphs, which sentence splitting needs.
+    raw = re.sub(r"[ \t\f\v\x08]+", " ", raw_content or "")
+    lines = re.sub(r"\s*\n\s*", "\n", raw).strip().split("\n")
+    # The provider's text still has the site's menus ("Patient & Visitor Guide", "Make a Donation", often
+    # twice). Drop repeated lines and short lines that are not sentences or questions.
+    seen: set[str] = set()
+    kept = []
+    for line in lines:
+        if line in seen or (len(line) < MENU_LINE_CHARS and not line.endswith((".", "?", "!", ":"))):
+            continue
+        seen.add(line)
+        kept.append(line)
+    return "\n".join(kept)
+
+
 def page_content(url: str, raw_content: str, errors: list[str]) -> tuple[str, str]:
-    """Return (text, extracted_by) using our extractor first, then the search provider's text."""
+    """Return (text, extracted_by) from our extractor and the search provider's text, in EXTRACT_ORDER."""
+    raw = _clean_raw(raw_content)
+    if config.EXTRACT_ORDER == "provider_first" and len(raw) >= config.MIN_CONTENT_CHARS:
+        return raw[: config.EXTRACT_MAX_CHARS], "tavily_raw"  # no download or HTML parsing (slow CPUs)
     own_errors: list[str] = []
     text = extract_text(url, own_errors)
     if text:
         return text, "trafilatura"
-    # Collapse spaces but keep line breaks: they mark headings/paragraphs, which sentence splitting needs.
-    raw = re.sub(r"[ \t\f\v\x08]+", " ", raw_content or "")
-    raw = re.sub(r"\s*\n\s*", "\n", raw).strip()
     if len(raw) >= config.MIN_CONTENT_CHARS:
         return raw[: config.EXTRACT_MAX_CHARS], "tavily_raw"
     errors.extend(own_errors)

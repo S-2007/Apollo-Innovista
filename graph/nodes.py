@@ -27,6 +27,7 @@ Every node catches its own failures, logs them to state["errors"], and returns
 a usable state, so the graph always reaches END.
 """
 
+import contextvars
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -208,17 +209,30 @@ def athena_search(state: ResearchState) -> dict:
     seen = {_norm_url(f["url"]) for f in findings}
     rnd = state["round_no"]
 
-    # Step 1 (sequential): search each query, pick new pages, assign ids in order.
+    # Step 1: search all queries at once (each mostly waits on the search API), then pick new pages
+    # and assign ids in query order, so the numbering does not depend on which search finished first.
     new: list[tuple[dict, str]] = []  # (finding without content, search-provider raw text)
-    events.append(f"[Athena] Round {rnd}: searching {len(state['pending_queries'])} queries")
-    for item in state["pending_queries"]:
+    items = list(state["pending_queries"])
+    events.append(f"[Athena] Round {rnd}: searching {len(items)} queries")
+    if items and _timed_out(state):
+        errors.append(f"athena_search: timeout reached, skipping remaining queries from {items[0]['query']!r}")
+        events.append("[Athena] Timeout reached; stopping this round early.")
+        items = []
+
+    def _search(item):
+        errs: list[str] = []
+        return web_search(item["query"], errs), errs
+
+    with ThreadPoolExecutor(max_workers=max(1, min(config.SEARCH_WORKERS, len(items) or 1))) as pool:
+        # Each search runs in its own copy of this thread's context (copied here, not in the worker), so the
+        # run id still reaches the usage meter and the live "search_results" events.
+        contexts = [contextvars.copy_context() for _ in items]
+        found = list(pool.map(lambda ctx, item: ctx.run(_search, item), contexts, items))
+
+    for item, (results, errs) in zip(items, found):
         query = item["query"]
-        if _timed_out(state):
-            errors.append(f"athena_search: timeout reached, skipping remaining queries from {query!r}")
-            events.append("[Athena] Timeout reached; stopping this round early.")
-            break
+        errors.extend(errs)
         searched.append(query)
-        results = web_search(query, errors)
         if not results:
             events.append(f"[Athena] No results for {query!r}; continuing.")
             continue

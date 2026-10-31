@@ -77,7 +77,7 @@ from export import render_markdown, write_report
 from graph import nodes
 from graph.state import initial_state
 from graph.workflow import build_graph
-from tools import passages
+from tools import embed, passages
 from tools.text import CITE, NOT_FOUND, WRITE_FAILED, find_citations
 from viz.contradictions import write_contradiction_map
 
@@ -459,6 +459,8 @@ def me(user: User) -> dict:
 @app.post("/api/runs")
 def start_run(req: RunRequest, user: User) -> dict:
     passages.clear_cache()  # bounded memory; each run re-embeds its own sources
+    if config.EMBED_WARM_UP:
+        embed.warm_up()  # load the model while the run plans and searches, not when verification starts
     run = Run(req.topic.strip(), req.max_rounds, req.hitl, owner=user["id"])
     if DEMO_FAIL_SUBQUESTION and any(t["id"] == "B" and t["topic"] == run.topic for t in _demo_topics()):
         run.fail_subquestion = DEMO_FAIL_SUBQUESTION

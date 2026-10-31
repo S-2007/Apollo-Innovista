@@ -589,3 +589,30 @@ same status for 17/17 claims. Over 115 saved claims, 12 candidate sentences per 
 sentences embedded (21,397 with no limit), same partial/not-found decision for 115/115.
 **Checks:** `pytest` 103 passed (new: parallel checks keep order and drop a spent model once; progress per claim;
 progress reaches the SSE stream between report_written and verification).
+
+## Phase 3.16: runs no longer killed for memory on Render; faster search (2026-10-31)
+
+**Reported (Render):** some runs end with "This run was interrupted because the server restarted" (0 sources at 1:39)
+on a stable connection; processing should also be faster.
+**Measured (Render settings, no-torch env, Windows):** one full run peaked at 584 MB, over Render's 512 MB, and the
+jump came in verification (246 → 584 MB). Cause: ONNX Runtime keeps memory for every batch shape it embeds;
+1,100 source sentences in batches of 32 added 327 MB (kept) and 25.9 CPU-s. Page extraction (download + trafilatura)
+cost 6.6–9.5 CPU-s for 15 pages, about a minute on 0.1 CPU, while the page still showed 0 sources. Loading the
+embedding model at the start of verification cost 2.9 CPU-s (~30 s there). Searches ran one after another.
+**Changes:**
+- `tools/embed.py` (onnx): embed shortest text first in batches of 8, results put back in order. Same 1,100 sentences:
+  +47 MB, 12.1 CPU-s, identical vectors (min cosine 1.000000). `EMBED_WARM_UP=true` (Render) loads the model in the
+  background when a run starts.
+- `EXTRACT_ORDER=provider_first` (Render; default stays `own`): use Tavily's page text when it has enough, and download
+  + trafilatura only for the rest (2 at a time, at most 1 MB: `EXTRACT_WORKERS`, `MAX_PAGE_BYTES`). 15 pages: ~0 CPU-s.
+  Provider text is cleaned of repeated lines and short menu lines ("Patient & Visitor Guide", "Make a Donation");
+  Tavily text is capped at 4 × `EXTRACT_MAX_CHARS` when it arrives.
+- `athena_search`: a round's queries are searched at once (`SEARCH_WORKERS` 5), each in its own copy of the run's
+  context (usage meter, live hits); ids are still assigned in query order. The timeout is checked before the round.
+**Measured after (same settings, a different topic):** peak 296 MB; 14.0 CPU-s for the whole run vs 25.3. Wall time
+was dominated by LLM waits: Groq's daily quota was spent and Gemini returned 503/429, so 10 of 14 claims ended
+"partial" because the verifier could not be asked, not because of these changes.
+**Checks:** `pytest` 106 passed (new: searches run at once and no search starts after the deadline; provider text goes
+first only when configured and drops menu lines; onnx embeds shortest first and returns the caller's order).
+**Not verified on Render (Linux).** Its Events tab would show "Ran out of memory" if a restart is still memory; a
+redeploy during a run (e.g. auto-deploy after a push) also interrupts it.
