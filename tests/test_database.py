@@ -106,3 +106,29 @@ def test_claim_script_gives_ownerless_runs_to_one_account():
     assert owners == {"old1": owner["id"], "old2": owner["id"], "theirs": other["id"]}  # others' runs untouched
     with pytest.raises(SystemExit):
         claim_runs.claim("nobody@example.com")
+
+
+def test_migration_copies_local_data_into_the_target_database(monkeypatch, tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location("migrate_to_db", Path(__file__).parent.parent / "scripts" / "migrate_to_db.py")
+    migrate_to_db = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migrate_to_db)
+
+    # the local SQLite database a user has been working in
+    source = f"sqlite:///{tmp_path / 'local.db'}"
+    monkeypatch.setattr(config, "DATABASE_URL", source)
+    me = auth.register("Me", "me@example.com", "correct horse")
+    api._save(_finished_run("mine", owner=me["id"]))
+    api._save(_finished_run("old"))
+    # the target (Neon in real use) already has another account, so ids will differ
+    monkeypatch.setattr(config, "DATABASE_URL", f"sqlite:///{tmp_path / 'target.db'}")
+    auth.register("Someone", "someone@example.com", "correct horse")
+
+    assert migrate_to_db.migrate(source) == (1, 2)
+    assert migrate_to_db.migrate(source) == (1, 0)  # safe to run again
+    new_id = auth.login("me@example.com", "correct horse")["id"]  # same password works on the target
+    with db.engine().connect() as conn:
+        owners = dict(conn.execute(select(db.runs.c.id, db.runs.c.owner)).all())
+    assert owners == {"mine": new_id, "old": None}

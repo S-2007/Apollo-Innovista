@@ -504,3 +504,16 @@ column. The research form's settings grid now also switches to two columns by it
 off in the narrow New Research column).
 **Checks:** `npm run build` passes; checked at 1440 px (Dashboard side column: three rows + two equal stats; New
 Research: wide layout) and in the ~640 px pane (medium layout).
+
+## Phase 3.11: free deployment (Hugging Face Spaces + Neon) (2026-10-31)
+
+**Added (nothing existing changed in behaviour):** `Dockerfile` (Node 22 builds the frontend; Python 3.11 with
+CPU-only torch; embedding model downloaded at build time; uvicorn on 7860 as user 1000), `.dockerignore` (`.env`,
+`output/`, `*.db` excluded), README front matter for Spaces, `DEPLOY.md` (step-by-step), `scripts/migrate_to_db.py`
+(copies the local SQLite accounts and runs into `DATABASE_URL`, password hashes kept, owners remapped, re-runnable),
+and in `api.py` a static mount of `frontend/dist` on `/`, registered after every `/api` route and only when the build
+exists. Local development is unchanged (Vite on 5173 proxies `/api`).
+**Checks:** `pytest` 93 passed (new: migration into a target that already has another account, run twice); with the
+backend on 8000, `/` serves the app (sign-in screen), `/assets/*.js` 200, `/api/auth/me` and `/api/runs` 401, Vite
+dev on 5173 still works.
+**Not verified:** the Docker build itself (Docker is not installed on this machine) and a live Neon database.

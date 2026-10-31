@@ -1,3 +1,13 @@
+---
+title: Apollo
+emoji: 🔎
+colorFrom: blue
+colorTo: gray
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Apollo: multi-agent deep research
 
 Give Apollo one topic; get back one report in which **every claim cites a source it actually retrieved**,
@@ -11,6 +21,8 @@ each claim checked against that source's text.
 
 The web app shows the agents working live, lets you approve or edit the plan and the follow-up queries,
 and renders the verified report with clickable citations.
+
+**Deploying for free (Hugging Face Spaces + Neon):** see [DEPLOY.md](DEPLOY.md).
 
 ## Setup (5 steps)
 

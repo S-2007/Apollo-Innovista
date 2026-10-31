@@ -836,3 +836,15 @@ def clear_cache(user: User) -> dict:
             shutil.rmtree(d, ignore_errors=True)
             removed += 1
     return {"runs_forgotten": len(done), "output_dirs_removed": removed}
+
+
+# ---------------------------------------------------------------- production frontend
+
+# In production (Dockerfile) the built React app is served by this same server, so the UI and /api share one
+# origin, which the SameSite=Strict login cookie requires. Mounted last, so every /api route above wins.
+# In local development frontend/dist is ignored by the Vite dev server on :5173, which proxies /api here.
+_FRONTEND_DIST = Path(__file__).parent / "frontend" / "dist"
+if _FRONTEND_DIST.is_dir():
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=_FRONTEND_DIST, html=True), name="frontend")
