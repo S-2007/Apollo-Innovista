@@ -92,5 +92,13 @@ VERIFY_TOP_K = 5               # best-matching source sentences shown to the ver
 VERIFY_MAX_CLAIMS = 40          # cap on LLM verification calls per report; the rest are "unchecked"
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "output")
 
+# --- Accounts (web app login) ---
+# JWT_SECRET signs session tokens. Set it in .env (any long random string); if it is missing, a random
+# secret is generated at startup, which works but signs everyone out whenever the server restarts.
+JWT_SECRET = os.getenv("JWT_SECRET", "")
+JWT_TTL_HOURS = _int("JWT_TTL_HOURS", 12)
+AUTH_DB = os.getenv("AUTH_DB", os.path.join(OUTPUT_DIR, "users.db"))
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"  # true when served over HTTPS
+
 # Hard backstop for LangGraph itself, independent of our own round logic.
 GRAPH_RECURSION_LIMIT = 25

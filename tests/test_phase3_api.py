@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import api
+import config
 from graph import nodes
 from tools import passages as passages_mod
 from verify import claims as claims_mod
@@ -32,12 +33,16 @@ def offline(monkeypatch, tmp_path):
     monkeypatch.setattr(claims_mod, "llm_chat", lambda *a, **k: '{"supported": true, "evidence": "x"}')
     monkeypatch.setattr(claims_mod, "_available_chain", lambda: [("groq", "m")])
     monkeypatch.setattr(api, "RUNS_DIR", tmp_path / "runs")
+    monkeypatch.setattr(config, "AUTH_DB", str(tmp_path / "users.db"))
     api._runs.clear()
 
 
 @pytest.fixture
 def client():
-    return TestClient(api.app)
+    """A signed-in client: every API route except /api/auth/* needs a session."""
+    c = TestClient(api.app)
+    assert c.post("/api/auth/register", json={"name": "Tester", "email": "tester@example.com", "password": "correct horse"}).status_code == 201
+    return c
 
 
 def _wait(client, run_id, predicate, timeout=10):

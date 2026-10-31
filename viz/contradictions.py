@@ -20,6 +20,15 @@ import networkx as nx
 
 NO_CONFLICTS = "No conflicts found between the retrieved sources."
 
+# The map is shown inside an iframe (and opened on its own from report exports), so the graph fills
+# the viewport instead of a fixed 650 px canvas that the frame cuts off, with no page margins or
+# scrollbars, and no in-page heading (the surrounding page already has one).
+_FILL_VIEWPORT = (
+    "<style>html,body{margin:0;height:100%;overflow:hidden;background:#fff}"
+    ".card{border:0!important;margin:0!important;height:100%}"
+    "#mynetwork{height:100vh!important;border:0!important}</style>"
+)
+
 
 def build_graph(contradictions: list[dict], findings: list[dict]) -> nx.Graph:
     by_id = {f["id"]: f for f in findings}
@@ -27,12 +36,15 @@ def build_graph(contradictions: list[dict], findings: list[dict]) -> nx.Graph:
     for c in contradictions:
         for sid in (c["source_a"], c["source_b"]):
             f = by_id.get(sid, {})
-            g.add_node(sid, label=sid, title=f"{f.get('title', '')}\n{f.get('url', '')}", shape="dot", size=18)
+            g.add_node(sid, label=sid, title=f"{f.get('title', '')}\n{f.get('url', '')}", shape="dot", size=22,
+                       color="#4c9aff", font={"size": 16, "face": "monospace"})
         a, b = c["source_a"], c["source_b"]
         if g.has_edge(a, b):
             g[a][b]["title"] += f"\n{c['claim']}"
         else:
-            g.add_edge(a, b, title=c["claim"], label=c["claim"][:40] + ("…" if len(c["claim"]) > 40 else ""), color="#d9534f")
+            # length: room for the edge label between the two nodes
+            g.add_edge(a, b, title=c["claim"], label=c["claim"][:40] + ("…" if len(c["claim"]) > 40 else ""), color="#ef6673",
+                       width=3, length=320, font={"size": 12, "align": "top", "background": "#ffffff"})
     return g
 
 
@@ -51,8 +63,9 @@ def write_contradiction_map(contradictions: list[dict], findings: list[dict], pa
     from pyvis.network import Network
 
     g = build_graph(contradictions, findings)
-    net = Network(height="650px", width="100%", cdn_resources="in_line", heading="Contradiction map")
+    net = Network(height="100vh", width="100%", cdn_resources="in_line")
     net.from_nx(g)
+    html_text = net.generate_html().replace("</head>", _FILL_VIEWPORT + "</head>", 1)
     # Write ourselves as UTF-8: pyvis' own writer uses the OS default encoding (cp1252 on Windows).
-    path.write_text(net.generate_html(), encoding="utf-8")
+    path.write_text(html_text, encoding="utf-8")
     return f"{g.number_of_edges()} conflict(s) between {g.number_of_nodes()} sources"

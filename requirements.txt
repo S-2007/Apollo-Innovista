@@ -18,3 +18,5 @@ pyvis==0.3.2
 fastapi==0.162.0
 uvicorn==0.54.0
 httpx==0.28.1
+# Login: signed session tokens (JWT, HS256)
+PyJWT==2.10.1

@@ -434,3 +434,21 @@ saved; search hits precede search_done). `npm run build` passes. Live (Focused, 
 until ~2m48s; 18 of 20 claims verified; no horizontal scroll at 375 px.
 **Known:** Groq's daily quota was spent (~198.8k/200k) during testing, so these runs used Gemini, which streams in
 few large chunks: drafts appear in bursts rather than word by word.
+
+## Phase 3.6: contradiction map fix; accounts with JWT (2026-10-31)
+
+**Graph not showing (fixed).** The pyvis map rendered its own "Contradiction map" heading twice and a fixed 650 px
+canvas inside a 520 px iframe, so the nodes sat off-screen (run 4f27084c showed one node's edge). Now: no in-map
+heading, the canvas fills the frame (100vh, no margins/scroll), larger nodes, red 3 px edges with readable labels and
+a 320 px edge length. `/api/runs/{id}/contradictions` rebuilds the map from the saved state, so old runs get the fix.
+**Accounts.** `auth.py`: register / login with scrypt-hashed passwords (stdlib) in SQLite (`AUTH_DB`), JWT HS256
+sessions (`PyJWT==2.10.1`, `JWT_SECRET`, `JWT_TTL_HOURS`=12) in an HttpOnly SameSite=Strict cookie (`Bearer` also
+accepted), generic "Incorrect email or password", 5 failed logins per email per 15 min → 429. Endpoints
+`/api/auth/register|login|logout|me`; every other route requires a session. Runs carry an `owner`; other users get 404
+for them; ownerless (pre-accounts) runs stay visible to all. Frontend: sign-in / create-account screen, 401 anywhere
+returns to it, sidebar shows the user with Sign out. A random `JWT_SECRET` was added to the local `.env`.
+**Checks:** `pytest` 85 passed (12 in `tests/test_auth.py`; API tests now use a signed-in client); `npm run build`
+passes. In the browser: unauthenticated `/api/runs` → 401; short-password error; register → dashboard; sign out →
+sign-in screen; wrong password → generic error; sign in; reload keeps the session; the map iframe loads with the
+cookie; `document.cookie` is empty (token not readable by scripts). The test account was deleted afterwards.
+**Not done:** email verification, password reset, account deletion UI, admin roles.

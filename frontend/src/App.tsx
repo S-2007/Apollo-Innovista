@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from 'react'
 import { PAGES, go, pageLabel, useRoute, type PageKey } from './router'
+import { AuthGate, useAuth } from './auth'
 import { StoreProvider, useStore } from './store'
 import { Pill, btn, fmtTime } from './ui'
 import Dashboard from './pages/Dashboard'
@@ -68,6 +69,8 @@ function StatusLine({ label, value, state }: { label: string; value: string; sta
 
 function Sidebar({ page, onNavigate }: { page: PageKey; onNavigate: () => void }) {
   const { runs, backendOk, system } = useStore()
+  const { user, signOut } = useAuth()
+  const initials = user.name.split(/\s+/).map((w) => w[0] ?? '').join('').slice(0, 2).toUpperCase() || '?'
   const live = runs.filter((r) => r.status === 'running' || r.status === 'awaiting_input').length
   const provider = system?.llm.provider
   const model = provider === 'groq' ? system?.llm.groq_model : system?.llm.gemini_model
@@ -106,11 +109,12 @@ function Sidebar({ page, onNavigate }: { page: PageKey; onNavigate: () => void }
         <StatusLine label="System status" value={backendOk === null ? 'Connecting…' : backendOk ? `Backend online · ${live} live run${live === 1 ? '' : 's'}` : 'Backend unreachable'} state={backendOk === null ? 'unknown' : backendOk ? 'ok' : 'bad'} />
         <StatusLine label="AI core" value={system ? `${provider} · ${model}` : 'Unknown'} state={coreOk === null ? 'unknown' : coreOk ? 'ok' : 'warn'} />
         <div className="mt-2 flex items-center gap-2.5 border-t border-hair pt-3">
-          <span className="flex h-7 w-7 items-center justify-center bg-ink font-mono text-[11px] text-white" aria-hidden="true">LO</span>
-          <div className="min-w-0">
-            <p className="truncate text-xs font-medium text-ink">Local operator</p>
-            <p className="truncate text-[11px] text-muted">No sign-in: backend has no auth</p>
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center bg-ink font-mono text-[11px] text-white" aria-hidden="true">{initials}</span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-medium text-ink">{user.name}</p>
+            <p className="truncate text-[11px] text-muted" title={user.email}>{user.email}</p>
           </div>
+          <button onClick={() => void signOut()} className="shrink-0 font-mono text-[11px] text-accent-ink hover:underline">Sign out</button>
         </div>
       </div>
     </nav>
@@ -194,8 +198,10 @@ function Shell() {
 
 export default function App() {
   return (
-    <StoreProvider>
-      <Shell />
-    </StoreProvider>
+    <AuthGate>
+      <StoreProvider>
+        <Shell />
+      </StoreProvider>
+    </AuthGate>
   )
 }

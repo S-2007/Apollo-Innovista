@@ -3,6 +3,10 @@
 Runs the frozen Phase 1-2 graph in background threads and streams its progress
 to the browser as Server-Sent Events. Endpoints:
 
+  POST /api/auth/register            create an account {name, email, password}; signs in (cookie)
+  POST /api/auth/login               sign in {email, password}; sets the session cookie
+  POST /api/auth/logout              clear the session cookie
+  GET  /api/auth/me                  the signed-in user, or 401
   POST /api/runs                     start a run {topic, max_rounds, hitl} -> {run_id}
   GET  /api/runs/{id}                status and any pending human decision
   GET  /api/runs/{id}/events         SSE stream of typed events (see events.py)
@@ -15,6 +19,10 @@ to the browser as Server-Sent Events. Endpoints:
   GET  /api/system                   configuration and security posture (key PRESENCE only, never values)
   GET  /api/demo-topics              demo topics from demo/topics.md: [{id, title, topic, note}]
   POST /api/cache/clear              forget finished runs and cached embeddings
+
+Every endpoint except /api/auth/* needs a session: a JWT in the HttpOnly `apollo_session` cookie (set by
+login/register) or an `Authorization: Bearer <jwt>` header. Runs belong to the user who started them;
+runs saved before accounts existed have no owner and are visible to every signed-in user.
 
 Finished runs are saved to output/runs/<id>/run.json (events, final state, usage meter)
 and reloaded at startup, so history, analytics and reports survive a server restart.
@@ -46,14 +54,15 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
+import auth
 import config
 import live
 import metering
@@ -83,8 +92,9 @@ app.add_middleware(CORSMiddleware, allow_origins=VITE_ORIGINS, allow_methods=["*
 
 
 class Run:
-    def __init__(self, topic: str, max_rounds: int, hitl: bool, run_id: str | None = None) -> None:
+    def __init__(self, topic: str, max_rounds: int, hitl: bool, run_id: str | None = None, owner: str | None = None) -> None:
         self.id = run_id or uuid.uuid4().hex
+        self.owner = owner                # user id; None = saved before accounts existed (visible to all)
         self.created_at = int(time.time() * 1000)
         self.finished_at: int | None = None
         self.topic, self.max_rounds, self.hitl = topic, max_rounds, hitl
@@ -102,10 +112,34 @@ _runs: dict[str, Run] = {}
 _lock = threading.Lock()
 
 
-def _get(run_id: str) -> Run:
+# ---------------------------------------------------------------- accounts
+
+SESSION_COOKIE = "apollo_session"
+
+
+def current_user(request: Request) -> dict:
+    """The signed-in user from the session cookie or a Bearer token; 401 otherwise."""
+    token = request.cookies.get(SESSION_COOKIE, "")
+    header = request.headers.get("authorization", "")
+    if not token and header.lower().startswith("bearer "):
+        token = header[7:].strip()
+    user = auth.user_from_token(token) if token else None
+    if user is None:
+        raise HTTPException(401, "Sign in to continue.")
+    return user
+
+
+User = Annotated[dict, Depends(current_user)]
+
+
+def _visible(run: "Run", user: dict) -> bool:
+    return run.owner is None or run.owner == user["id"]
+
+
+def _get(run_id: str, user: dict) -> Run:
     with _lock:
         run = _runs.get(run_id)
-    if run is None:
+    if run is None or not _visible(run, user):  # someone else's run looks exactly like a missing one
         raise HTTPException(404, "unknown run_id")
     return run
 
@@ -144,7 +178,7 @@ def _save(run: Run) -> None:
     """Write a finished run to output/runs/<id>/run.json. A failed write never fails the run."""
     with _lock:
         doc = {
-            "id": run.id, "topic": run.topic, "max_rounds": run.max_rounds, "hitl": run.hitl,
+            "id": run.id, "owner": run.owner, "topic": run.topic, "max_rounds": run.max_rounds, "hitl": run.hitl,
             "status": run.status, "created_at": run.created_at, "finished_at": run.finished_at,
             # Drafts only matter while a section is being written; the final text is in section_written.
             "events": [e for e in run.events if e["type"] != "section_draft"],
@@ -164,7 +198,7 @@ def _load_saved() -> None:
     for path in RUNS_DIR.glob("*/run.json"):
         try:
             doc = json.loads(path.read_text(encoding="utf-8"))
-            run = Run(doc["topic"], doc["max_rounds"], doc["hitl"], run_id=doc["id"])
+            run = Run(doc["topic"], doc["max_rounds"], doc["hitl"], run_id=doc["id"], owner=doc.get("owner"))
         except (OSError, ValueError, KeyError, TypeError):
             continue  # a damaged file is skipped, not fatal
         run.status, run.events, run.state = doc.get("status", "failed"), doc.get("events", []), doc.get("state")
@@ -287,11 +321,59 @@ class ResumeRequest(BaseModel):
     payload: dict | None = None
 
 
+class RegisterRequest(BaseModel):
+    name: str = Field(max_length=80)
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=256)
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=256)
+
+
+def _signed_in(user: dict, status: int = 200) -> JSONResponse:
+    """Response carrying the user and a fresh session cookie (HttpOnly: page scripts cannot read it)."""
+    resp = JSONResponse({"user": user}, status_code=status)
+    resp.set_cookie(SESSION_COOKIE, auth.create_token(user), max_age=config.JWT_TTL_HOURS * 3600,
+                    httponly=True, samesite="strict", secure=config.COOKIE_SECURE, path="/")
+    return resp
+
+
+def _auth_call(fn, *args) -> dict:
+    try:
+        return fn(*args)
+    except auth.AuthError as exc:
+        raise HTTPException(exc.status, exc.message) from None
+
+
+@app.post("/api/auth/register")
+def register(req: RegisterRequest) -> JSONResponse:
+    return _signed_in(_auth_call(auth.register, req.name, req.email, req.password), status=201)
+
+
+@app.post("/api/auth/login")
+def login(req: LoginRequest) -> JSONResponse:
+    return _signed_in(_auth_call(auth.login, req.email, req.password))
+
+
+@app.post("/api/auth/logout")
+def logout() -> JSONResponse:
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(SESSION_COOKIE, path="/")
+    return resp
+
+
+@app.get("/api/auth/me")
+def me(user: User) -> dict:
+    return {"user": user}
+
+
 @app.post("/api/runs")
-def start_run(req: RunRequest) -> dict:
+def start_run(req: RunRequest, user: User) -> dict:
     passages.clear_cache()  # bounded memory; each run re-embeds its own sources
-    run = Run(req.topic.strip(), req.max_rounds, req.hitl)
-    if DEMO_FAIL_SUBQUESTION and any(t["id"] == "B" and t["topic"] == run.topic for t in demo_topics()):
+    run = Run(req.topic.strip(), req.max_rounds, req.hitl, owner=user["id"])
+    if DEMO_FAIL_SUBQUESTION and any(t["id"] == "B" and t["topic"] == run.topic for t in _demo_topics()):
         run.fail_subquestion = DEMO_FAIL_SUBQUESTION
     with _lock:
         _runs[run.id] = run
@@ -300,15 +382,15 @@ def start_run(req: RunRequest) -> dict:
 
 
 @app.get("/api/runs/{run_id}")
-def run_status(run_id: str) -> dict:
-    run = _get(run_id)
+def run_status(run_id: str, user: User) -> dict:
+    run = _get(run_id, user)
     with _lock:
         return {"run_id": run.id, "topic": run.topic, "status": run.status, "pending": run.pending, "events": len(run.events)}
 
 
 @app.get("/api/runs/{run_id}/events")
-async def run_events(run_id: str, request: Request) -> StreamingResponse:
-    run = _get(run_id)
+async def run_events(run_id: str, request: Request, user: User) -> StreamingResponse:
+    run = _get(run_id, user)
     try:  # EventSource sends the last id it saw when it reconnects: continue after it
         start = int(request.headers.get("last-event-id", "-1")) + 1
     except ValueError:
@@ -338,13 +420,13 @@ async def run_events(run_id: str, request: Request) -> StreamingResponse:
 
 
 @app.post("/api/runs/{run_id}/resume")
-def resume_run(run_id: str, req: ResumeRequest) -> dict:
+def resume_run(run_id: str, req: ResumeRequest, user: User) -> dict:
     """Answer a pending interrupt.
 
     Plan:  approve (payload {sub_questions} = approve with edits) | edit (same payload) | reject
     Gaps:  approve (payload {gaps} = approve edited gaps) | edit (same payload) | skip | reject (= skip)
     """
-    run = _get(run_id)
+    run = _get(run_id, user)
     with _lock:
         pending = run.pending
         if pending is None:
@@ -391,8 +473,8 @@ def _source_rows(state: dict) -> list[dict]:
 
 
 @app.get("/api/runs/{run_id}/report")
-def get_report(run_id: str) -> dict:
-    run = _get(run_id)
+def get_report(run_id: str, user: User) -> dict:
+    run = _get(run_id, user)
     with _lock:
         state, events = run.state, list(run.events)
     if state is None:
@@ -439,16 +521,21 @@ def _citation_check(state: dict) -> dict:
 
 
 @app.get("/api/runs/{run_id}/report.md")
-def download_report(run_id: str) -> FileResponse:
-    path = _get(run_id).out_dir / "report.md"
+def download_report(run_id: str, user: User) -> FileResponse:
+    path = _get(run_id, user).out_dir / "report.md"
     if not path.exists():
         raise HTTPException(409, "the report is not ready yet")
     return FileResponse(path, media_type="text/markdown", filename=f"apollo-report-{run_id[:8]}.md")
 
 
 @app.get("/api/runs/{run_id}/contradictions")
-def contradictions_html(run_id: str) -> HTMLResponse:
-    path = _get(run_id).out_dir / "contradictions.html"
+def contradictions_html(run_id: str, user: User) -> HTMLResponse:
+    run = _get(run_id, user)
+    path = run.out_dir / "contradictions.html"
+    with _lock:
+        state = run.state
+    if state is not None:  # rebuild, so maps saved by older versions get the current layout too
+        write_contradiction_map(state["contradictions"], state["findings"], path)
     if not path.exists():
         raise HTTPException(409, "the contradiction map is not ready yet")
     return HTMLResponse(path.read_text(encoding="utf-8"))
@@ -477,9 +564,9 @@ def _summary(run: Run) -> dict:
 
 
 @app.get("/api/runs")
-def list_runs() -> list[dict]:
+def list_runs(user: User) -> list[dict]:
     with _lock:
-        runs = list(_runs.values())
+        runs = [r for r in _runs.values() if _visible(r, user)]
     return sorted((_summary(r) for r in runs), key=lambda r: r["created_at"], reverse=True)
 
 
@@ -522,8 +609,8 @@ def _price(provider: str) -> tuple[float, float] | None:
 
 
 @app.get("/api/runs/{run_id}/metrics")
-def run_metrics(run_id: str) -> dict:
-    run = _get(run_id)
+def run_metrics(run_id: str, user: User) -> dict:
+    run = _get(run_id, user)
     with _lock:
         events = list(run.events)
     calls = metering.calls(run.id)
@@ -600,7 +687,7 @@ def _secret_scan() -> dict:
 
 
 @app.get("/api/system")
-def system() -> dict:
+def system(user: User) -> dict:
     """Configuration and security posture. Keys are reported as present/absent, never as values."""
     root = Path(__file__).parent
     ignore = root / ".gitignore"
@@ -627,7 +714,11 @@ def system() -> dict:
 
 
 @app.get("/api/demo-topics")
-def demo_topics() -> list[dict]:
+def demo_topics(user: User) -> list[dict]:
+    return _demo_topics()
+
+
+def _demo_topics() -> list[dict]:
     """Parse demo/topics.md. Each `## Topic <id>: <title>` section gives one topic: its
     `**Topic:**` line is the topic, its `Settings:` line (if any) is the note."""
     text = DEMO_TOPICS_FILE.read_text(encoding="utf-8")
@@ -649,18 +740,18 @@ def demo_topics() -> list[dict]:
 
 
 @app.post("/api/cache/clear")
-def clear_cache() -> dict:
-    """Start demos clean: drop cached embeddings and every finished run (and its output files)."""
+def clear_cache(user: User) -> dict:
+    """Start demos clean: drop cached embeddings and the caller's finished runs (and their output files)."""
     passages.clear_cache()
     with _lock:
-        done = [rid for rid, r in _runs.items() if r.status not in ACTIVE]
+        done = [rid for rid, r in _runs.items() if r.status not in ACTIVE and r.owner == user["id"]]
         for rid in done:
             del _runs[rid]
             metering.forget(rid)
     removed = 0
-    if RUNS_DIR.exists():
-        for d in RUNS_DIR.iterdir():
-            if d.is_dir() and d.name not in _runs:
-                shutil.rmtree(d, ignore_errors=True)
-                removed += 1
+    for rid in done:
+        d = RUNS_DIR / rid
+        if d.is_dir():
+            shutil.rmtree(d, ignore_errors=True)
+            removed += 1
     return {"runs_forgotten": len(done), "output_dirs_removed": removed}

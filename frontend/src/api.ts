@@ -231,12 +231,19 @@ export type ResumeAction = 'approve' | 'edit' | 'reject' | 'skip'
 
 // ------------------------------------------------------------------ fetch wrappers
 
+/** Fired on window when any API call gets 401 (session missing or expired). */
+export const SIGNED_OUT_EVENT = 'apollo:signed-out'
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let resp: Response
   try {
     resp = await fetch(url, init)
   } catch {
     throw new Error('Cannot reach the backend. Is uvicorn running on port 8000?')
+  }
+  if (resp.status === 401 && !url.startsWith('/api/auth/')) {
+    // The session expired or was revoked: tell the app to show the sign-in screen.
+    window.dispatchEvent(new Event(SIGNED_OUT_EVENT))
   }
   if (!resp.ok) {
     const body: unknown = await resp.json().catch(() => null)
@@ -274,3 +281,20 @@ export const getDemoTopics = () => request<DemoTopic[]>('/api/demo-topics')
 
 export const eventsUrl = (runId: string) => `/api/runs/${runId}/events`
 export const reportDownloadUrl = (runId: string) => `/api/runs/${runId}/report.md`
+
+// ------------------------------------------------------------------ accounts
+// The session is a JWT in an HttpOnly cookie set by the backend; this code never sees the token.
+
+export interface AuthUser {
+  id: string
+  email: string
+  name: string
+  created_at: number
+}
+
+export const authMe = () => request<{ user: AuthUser }>('/api/auth/me').then((r) => r.user)
+export const authLogin = (email: string, password: string) =>
+  request<{ user: AuthUser }>('/api/auth/login', post({ email, password })).then((r) => r.user)
+export const authRegister = (name: string, email: string, password: string) =>
+  request<{ user: AuthUser }>('/api/auth/register', post({ name, email, password })).then((r) => r.user)
+export const authLogout = () => request<{ ok: boolean }>('/api/auth/logout', post({}))

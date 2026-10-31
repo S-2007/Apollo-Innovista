@@ -88,8 +88,10 @@ START → Apollo plans → (you approve/edit) → Athena searches → Hermes rev
 - **The verifier can be lenient**, especially when the same model family wrote the text. The Verification tab shows
   the matched source sentence so a person can check.
 - **Source quality.** Social-media pages and off-topic results are not filtered out.
-- **Local only.** Finished runs are saved as JSON files in `output/runs/` (no database), no authentication, CORS for the
-  Vite dev origin only. A run that is still going when the server stops is lost.
+- **Local deployment.** Accounts (register / sign in) use a JWT in an HttpOnly cookie and a SQLite user file
+  (`output/users.db`); set `JWT_SECRET` in `.env`. Runs are private to their owner; runs saved before accounts existed
+  are visible to every signed-in user. Finished runs are JSON files in `output/runs/`. No email verification or
+  password reset yet; CORS is for the Vite dev origin only; set `COOKIE_SECURE=true` behind HTTPS.
 - **Cost is shown in tokens.** A dollar estimate appears only if you set `PRICE_<PROVIDER>_INPUT_PER_M` /
   `_OUTPUT_PER_M` in `.env`; prices are not built in because free tiers and prices change.
 
