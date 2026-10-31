@@ -493,3 +493,14 @@ fresh account now shows 0 sessions and an empty form. `/api/demo-topics` still e
 used by the UI.
 **Checks:** `npm run build` passes; `pytest` 92 passed; in the browser the dashboard text shows 0 sessions and no
 suggestions, and New Research has no DEMO buttons.
+
+## Phase 3.10: agent strip and research form fit the space they are given (2026-10-31)
+
+**Reported:** the agent strip in the Dashboard's narrow "Live intelligence" column was cramped (APOL… / ATHE… / HERM…,
+labels cut off). It chose its columns from the window width, so a wide window forced four columns into ~340 px.
+**Fix:** container queries (Tailwind 4 `@container`): below 36rem one full-width row per agent and Round | Elapsed as
+two equal cells; from 36rem three equal agent cards with the stats below; from 56rem three cards plus a joined stats
+column. The research form's settings grid now also switches to two columns by its own width (the Deep option was cut
+off in the narrow New Research column).
+**Checks:** `npm run build` passes; checked at 1440 px (Dashboard side column: three rows + two equal stats; New
+Research: wide layout) and in the ~640 px pane (medium layout).

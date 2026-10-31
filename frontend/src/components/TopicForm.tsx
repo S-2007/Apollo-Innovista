@@ -31,7 +31,7 @@ export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Prop
 
   return (
     <form
-      className="border border-line bg-surface"
+      className="@container border border-line bg-surface"
       onSubmit={(e) => {
         e.preventDefault()
         if (ready && !busy) onStart(topic.trim(), maxRounds, hitl)
@@ -52,7 +52,7 @@ export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Prop
 
       </div>
 
-      <div className="grid gap-px border-t border-line bg-hair sm:grid-cols-2">
+      <div className="grid gap-px border-t border-line bg-hair @xl:grid-cols-2">
         <div className="bg-surface p-4">
           <p id="depth-label" className="label mb-1.5">Research depth</p>
           <div role="radiogroup" aria-labelledby="depth-label" className="flex gap-2">
