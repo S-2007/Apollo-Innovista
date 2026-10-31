@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+/* Neutral palette (zinc) with one accent (indigo). Amber is reserved for warnings. */
+body {
+  @apply bg-zinc-50 text-zinc-900;
+}

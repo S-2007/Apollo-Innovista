@@ -244,3 +244,63 @@ A pinned name was chosen over the `-latest` aliases, which can change silently.
   20b verifies). An independent verifier from a different model family would be stronger.
 - To demo while Groq's quota is spent, set `LLM_PROVIDER=gemini` in `.env`. Gemini's free tier has its own
   per-minute and per-day limits; a 429 is waited out (up to 60s), or the model is dropped if its daily quota is spent.
+
+## Phase 3: web app (FastAPI + SSE, React + Vite + TypeScript) (2026-11-01)
+
+### Built
+| File | Purpose |
+|---|---|
+| `api.py` | FastAPI backend. In-memory run registry with a lock; the graph runs in a background thread; SSE events with ids (resume via `Last-Event-ID`) and a 15 s heartbeat; resume endpoint for plan/gap decisions; report, report.md download, contradiction map, demo topics, cache clear. A run failure becomes an `error` event + `complete`, never a 500 |
+| `events.py` | `EventConverter`: LangGraph `updates` chunks → 12 typed events. The UI never sees graph state |
+| `frontend/` | Vite 8 + React 19 + TS 7 + Tailwind 4 + react-markdown. 7 components: TopicForm, ProgressFeed, ApprovalPanel (plan + gaps), ReportView (citations, hover cards, verification markers, download), SourcesTable, VerificationTable, ContradictionsView |
+| `demo/topics.md`, `DEMO.md`, `README.md` | Demo topics, 2-minute script, setup |
+| `tests/test_phase3_api.py` | 9 offline API tests: event order over real SSE, failed search, HITL edit + skip, reject, graph exception → error event, validation, Last-Event-ID resume, demo topics + cache clear, demo switch |
+
+### Decisions (agreed or flagged)
+- **Max rounds 1–2, not 1–3.** The hard constraint "max 2 research rounds" wins over the Phase 3 spec; `max_rounds=3` gets a 422.
+- **7 components instead of 9.** PlanApproval + GapApproval became one ApprovalPanel; DownloadButton is inside
+  ReportView. All the specified behaviour is kept.
+- **Topic B demo switch** (agreed with the user). Live search never returned empty, even for nonsense or 1,188-character
+  queries. `APOLLO_DEMO_FAIL_SUBQUESTION=N` makes the N-th sub-question's search fail, **only for the exact Topic B
+  text**, through Athena's normal error path, with the warning "simulated outage (demo switch …)". Off by default.
+- **Phases 1–2 frozen.** `git diff 76c5d46 -- graph tools verify viz export.py llm.py config.py run_cli.py` is empty.
+  The API only calls `build_graph`, `initial_state`, `write_report`, `write_contradiction_map`; the demo switch wraps
+  `nodes.web_search` at runtime.
+
+### Acceptance checks
+1. **Pass.** `uvicorn api:app` started; `curl POST /api/runs` (Topic A) → `{"run_id": …}`; `curl -N …/events` → 25 events,
+   ids 0–24 strictly in order, 15 heartbeats, the stream closed after `complete`, and the run reached round 2. (That
+   run's LLM calls hit Groq's daily token limit; it degraded honestly, with amber warnings and "not found in sources".)
+2. **Pass.** `npm run build` (`tsc -b && vite build`): no TypeScript errors; also after a clean `npm ci` from the lockfile.
+3. **Pass.** Browser, Topic A: feed shows "Round 1…", "Hermes found 3 gap(s) in round 1", "Round 2…", "Apollo stops:
+   maximum number of rounds reached"; report rendered with 8 clickable citations and hover cards; Sources tab has 21 rows.
+4. **Pass.** Browser, HITL: plan pending → edited sub-question 2 → `search_started` round 1 contained the edited text →
+   `gaps_pending` → Approve all → round 2 searched exactly those gaps → complete.
+5. **Pass.** Browser, Topic B: amber "No results for <sub-question 2>" (simulated outage), run complete, section 2
+   = "Not found in sources.", other sections cited normally.
+6. **Pass.** Download: 200, `content-disposition: attachment; filename="apollo-report-….md"`; the citation checker
+   reports `Failures: 0` on the downloaded file.
+7. **Pass.** `pytest tests/` → 56 passed (47 Phase 1–2 + 9 Phase 3); `npm run build` passes.
+8. **Pass after fixing the doc.** Followed DEMO.md from fresh PowerShell terminals. Two wrong steps were fixed: (a) the
+   edited question was not visible in the feed when the script says so, so the feed now lists each round's queries;
+   (b) tab 3 waits for gap approval after the demo, so the script now says to approve it.
+
+### Bugs found by running it (fixed)
+- Starting a new run briefly paired the new run id with the previous run's events and fetched a report too early
+  (amber "report not ready"). Events are now stored with their run id.
+- Hover cards overflowed the page (horizontal scroll); they now open leftwards.
+- Some search results use a 215-character URL as their "title", which stretched the Sources table to 1,384 px. Fixed
+  with a fixed table layout and `overflow-wrap:anywhere`.
+- The demo buttons' accessible name was the long topic; they now have `aria-label` "Demo: Topic A/B".
+- The Verification tab implied that all cited sources matched; it now says "best match among S1, S2" (Phase 2 does not record which).
+
+### Known gaps
+- **LLM quotas decide what a demo looks like.** Groq's 200k tokens/day per model ran out during testing; the live
+  checks ran with `LLM_PROVIDER=gemini GEMINI_MODEL=gemini-flash-lite-latest` (env override), and
+  `gemini-3.1-flash-lite` returned 503 "high demand" for part of the session.
+- Round 1 page downloads (15 s timeouts) can use up most of the 180 s budget; one run skipped some round-2 queries at
+  the timeout. Raise `TIMEOUT_SECONDS` for demos.
+- The contradiction-map iframe was not exercised live in Phase 3: no live Phase 3 run produced a conflict. The
+  "no conflicts" path was seen live; the map HTML itself was verified in Phase 2.1.
+- The Phase 2 verifier marked a "…not found in sources [S3]…" sentence as verified (lenient); frozen logic, recorded here.
+- Runs live in memory (lost on restart); localhost only; no auth, no database (as specified).

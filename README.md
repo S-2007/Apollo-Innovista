@@ -1,0 +1,96 @@
+# Apollo: multi-agent deep research
+
+Give Apollo one topic; get back one report in which **every claim cites a source it actually retrieved**,
+each claim checked against that source's text.
+
+| Agent | Role |
+|---|---|
+| **Apollo** (manager) | Splits the topic into 3–5 sub-questions, decides when to stop, writes the report |
+| **Athena** (searcher) | Searches the web (Tavily, Serper fallback) and reads the pages |
+| **Hermes** (reviewer) | Finds gaps and conflicting sources; sends follow-up queries or says "complete" |
+
+The web app shows the agents working live, lets you approve or edit the plan and the follow-up queries,
+and renders the verified report with clickable citations.
+
+## Setup (5 steps)
+
+Needs Python 3.11 and Node 20+. Commands are for Windows PowerShell; on macOS/Linux use
+`.venv/bin/python` and `export VAR=value`.
+
+1. **Python environment**
+   ```powershell
+   py -3.11 -m venv .venv
+   .venv\Scripts\python -m pip install -r requirements.txt
+   ```
+2. **API keys**: copy `.env.example` to `.env` and fill in `TAVILY_API_KEY`, `GROQ_API_KEY`, and optionally
+   `SERPER_API_KEY` and `GEMINI_API_KEY`. Never commit `.env`.
+3. **Frontend packages**
+   ```powershell
+   cd frontend; npm ci; cd ..
+   ```
+4. **Start the backend** (terminal 1, project folder)
+   ```powershell
+   .venv\Scripts\python -m uvicorn api:app --port 8000
+   ```
+5. **Start the frontend** (terminal 2), then open http://localhost:5173
+   ```powershell
+   cd frontend; npm run dev
+   ```
+
+The first run downloads the embedding model (all-MiniLM-L6-v2, ~90 MB) once.
+
+Command line without the UI: `.venv\Scripts\python run_cli.py "your topic"` (add `--hitl` to approve steps in the
+terminal). Tests: `.venv\Scripts\python -m pytest tests/` (offline, about 15 s).
+
+## How the agents and the loop work
+
+```
+START → Apollo plans → (you approve/edit) → Athena searches → Hermes reviews → (you approve gaps) → Apollo decides
+                                                ↑                                                     │
+                                                └──────────── round 2 with Hermes' gap queries ───────┤
+                                                                                                      ↓
+              one writer per sub-question (parallel) → assemble → verify every claim → report.md + conflict map
+```
+
+- **Stopping is decided in code**, not by the LLM. Apollo stops when Hermes says complete, after 2 rounds, when the
+  wall-clock limit (`TIMEOUT_SECONDS`, default 180 s) is reached, or when there are no new gap queries.
+- **Writers see only their own section's sources.** Code removes citations to ids a writer was not given, and drops
+  any sentence that cites nothing. A section without support reads "Not found in sources."
+- **Verification:** for each cited sentence, the best-matching sentences of the cited source's retrieved text are
+  found with embeddings, then an LLM answers yes/no. Result: verified / partial / not_found / unchecked.
+- **Failures never crash a run.** A failed search, an unreadable page or a rate limit becomes an amber warning in
+  the UI, and the run continues.
+- The web API (`api.py`) runs the graph in a background thread and streams typed events (`events.py`) over
+  Server-Sent Events. The frontend never reads raw graph state.
+
+| Path | What it is |
+|---|---|
+| `graph/` | LangGraph state, nodes (agents), workflow |
+| `tools/` | search, page extraction, passage selection, retry policy, text helpers |
+| `verify/`, `viz/`, `export.py` | claim verification, contradiction map, Markdown export |
+| `api.py`, `events.py` | FastAPI backend and event conversion |
+| `frontend/` | React + Vite + TypeScript + Tailwind UI (7 components) |
+| `demo/topics.md`, `DEMO.md` | demo topics and the 2-minute demo script |
+| `PHASE_LOG.md` | what was built and verified in each phase, with known gaps |
+
+## Known limits
+
+- **Free-tier LLM quotas.** Groq allows 200,000 tokens per model per day, and one run uses about 30–60k. When it
+  runs out, set `LLM_PROVIDER=gemini` (and, if Google reports the model as overloaded,
+  `GEMINI_MODEL=gemini-flash-lite-latest`). Claim verification falls back Groq 20b → Groq 120b → Gemini by itself.
+- **Speed.** A run takes 2–4 minutes. Pages are downloaded with 15 s timeouts, so slow sites can use up the 180 s
+  research budget and cut round 2 short. Raise `TIMEOUT_SECONDS` in `.env` if that matters for a demo.
+- **Hermes is one LLM judgement over excerpts.** It can miss contradictions or report a scope difference as one.
+  Detection varies between runs.
+- **The verifier can be lenient**, especially when the same model family wrote the text. The Verification tab shows
+  the matched source sentence so a person can check.
+- **Source quality.** Social-media pages and off-topic results are not filtered out.
+- **Local only.** In-memory runs (lost on restart), no authentication, no database, CORS for the Vite dev origin only.
+
+## Future ideas
+
+- Filter or down-rank low-quality sources before writing.
+- An independent verifier from a different model family than the writer.
+- Record which cited source supported each claim (today the verifier keeps only the best-matching sentence).
+- Parallel search across sub-questions to keep two rounds well inside the time budget.
+- Save runs to disk so a restart does not lose them.
