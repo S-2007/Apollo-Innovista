@@ -20,9 +20,14 @@ export const PAGES = [
   { key: 'reports', label: 'Final Reports' },
 ] as const
 
-export type PageKey = (typeof PAGES)[number]['key']
+// Pages reached from a flow rather than the sidebar (launching a run opens the live report).
+export const FLOW_PAGES = [{ key: 'live', label: 'Live Report' }] as const
 
-const isPage = (k: string): k is PageKey => PAGES.some((p) => p.key === k)
+export type PageKey = (typeof PAGES)[number]['key'] | (typeof FLOW_PAGES)[number]['key']
+
+export const pageLabel = (k: PageKey) => [...PAGES, ...FLOW_PAGES].find((p) => p.key === k)?.label ?? ''
+
+const isPage = (k: string): k is PageKey => PAGES.some((p) => p.key === k) || FLOW_PAGES.some((p) => p.key === k)
 
 function parse(): { page: PageKey; run: string | null } {
   const [path = '', query = ''] = window.location.hash.replace(/^#\/?/, '').split('?')

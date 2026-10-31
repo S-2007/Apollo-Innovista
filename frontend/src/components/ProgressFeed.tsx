@@ -66,6 +66,12 @@ function describe(e: AnyEvent): Line {
       const tail = failed ? ` (${failed} of ${reviews} reviews failed)` : ''
       return { tag: 'CONFLICT', text: (c ? `${c} conflict${c === 1 ? '' : 's'} between sources` : 'no conflicts between sources') + tail, tone: failed ? 'warn' : 'normal' }
     }
+    case 'search_results':
+      return { tag: 'HITS', text: `${(e.data.results ?? []).length} results · ${e.data.query ?? ''}`, tone: 'normal' }
+    case 'section_draft':
+      return { tag: 'DRAFT', text: `section ${n(e.data.index) + 1} being written`, tone: 'normal' }
+    case 'report_written':
+      return { tag: 'WRITE', text: 'report text ready; verifying claims', tone: 'good' }
     case 'report_ready':
       return { tag: 'READY', text: 'report ready', tone: 'good' }
     case 'warning':
@@ -103,12 +109,13 @@ export default function ProgressFeed({ events }: { events: AnyEvent[] }) {
 
   if (events.length === 0) return null
   const t0 = Math.min(...events.map((e) => toMs(e.ts)))
+  const shown = events.filter((e) => e.type !== 'section_draft') // drafts stream several times a second
 
   return (
     <section aria-label="Event log" className="rounded-sm border border-hair bg-surface">
       <h2 className="border-b border-hair px-4 py-2.5 font-display text-sm font-semibold tracking-wide">Event log</h2>
       <ol ref={box} className="max-h-[40vh] space-y-1 overflow-y-auto px-4 py-3 font-mono text-xs" aria-live="polite">
-        {events.map((e, i) => {
+        {shown.map((e, i) => {
           const line = describe(e)
           const tone = TONE[line.tone]
           return (

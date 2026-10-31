@@ -30,6 +30,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
+# A second Gemini model with its own capacity: used when GEMINI_MODEL is overloaded (503).
+GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-flash-lite-latest")
 PLAN_TEMPERATURE = 0.2
 REVIEW_TEMPERATURE = 0.2
 WRITE_TEMPERATURE = 0.2
@@ -39,7 +41,7 @@ VERIFY_MODEL = os.getenv("VERIFY_MODEL", "openai/gpt-oss-20b")
 # with LLM_PROVIDER's model, then the other models, so a spent daily quota or a rate-limit burst
 # on one model moves the call to the next instead of failing the section. Providers without a key
 # are skipped.
-_DEFAULT_LLM_MODELS = {"groq": [f"groq:{GROQ_MODEL}", f"groq:{VERIFY_MODEL}"], "gemini": [f"gemini:{GEMINI_MODEL}"]}
+_DEFAULT_LLM_MODELS = {"groq": [f"groq:{GROQ_MODEL}", f"groq:{VERIFY_MODEL}"], "gemini": [f"gemini:{GEMINI_MODEL}", f"gemini:{GEMINI_FALLBACK_MODEL}"]}
 LLM_CHAIN = [
     tuple(item.strip().split(":", 1))
     for item in os.getenv(
@@ -57,7 +59,7 @@ LLM_COOLDOWN_SECONDS = _int("LLM_COOLDOWN_SECONDS", 600)  # skip a model this lo
 VERIFY_CHAIN = [
     tuple(item.strip().split(":", 1))
     for item in os.getenv(
-        "VERIFY_CHAIN", f"groq:{VERIFY_MODEL},groq:{GROQ_MODEL},gemini:{GEMINI_MODEL}"
+        "VERIFY_CHAIN", f"groq:{VERIFY_MODEL},groq:{GROQ_MODEL},gemini:{GEMINI_MODEL},gemini:{GEMINI_FALLBACK_MODEL}"
     ).split(",")
     if ":" in item
 ]

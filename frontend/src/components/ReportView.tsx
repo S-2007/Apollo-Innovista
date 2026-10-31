@@ -30,7 +30,7 @@ function Chip({ id, source }: { id: string; source?: Source }) {
   )
 }
 
-function withChips(node: ReactNode, sources: Map<string, Source>): ReactNode {
+export function withChips(node: ReactNode, sources: Map<string, Source>): ReactNode {
   return Children.map(node, (child) =>
     typeof child === 'string'
       ? child.split(/(\[S\d+\])/).map((part, i) => {
@@ -58,7 +58,7 @@ const BORDER: Record<string, string> = {
   not_found: 'border-l-2 border-err pl-3',
 }
 
-export default function ReportView({ report, runId }: { report: Report; runId: string }) {
+export default function ReportView({ report, runId, toolbar = true }: { report: Report; runId: string; toolbar?: boolean }) {
   const sources = new Map((report.sources ?? []).map((s) => [s.id, s]))
   const flagged: Claim[] = (report.verification ?? []).filter((c) => c.status === 'partial' || c.status === 'not_found')
 
@@ -73,7 +73,7 @@ export default function ReportView({ report, runId }: { report: Report; runId: s
 
   return (
     <article>
-      <div className="no-print mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
+      {toolbar && <div className="no-print mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
         <a
           href={reportDownloadUrl(runId)}
           download
@@ -84,7 +84,7 @@ export default function ReportView({ report, runId }: { report: Report; runId: s
         <span className="border-l-2 border-warn pl-2">partial support</span>
         <span className="border-l-2 border-err pl-2">not found in source</span>
         <span>Best-effort markers; the Verification tab is the source of truth.</span>
-      </div>
+      </div>}
       <div className="max-w-[72ch] space-y-4 text-[15px] leading-7 text-ink [&_h1]:font-display [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:text-ink [&_h2]:mt-8 [&_h2]:font-display [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-ink [&_li]:ml-5 [&_li]:list-disc">
         <ReactMarkdown
           components={{

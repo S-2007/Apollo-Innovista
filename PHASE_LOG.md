@@ -411,3 +411,26 @@ false: the 14 sources were fine. The single round was Hermes judging the sources
 **Checks:** `pytest` 70 passed (6 new in `tests/test_llm_chain.py`); `npm run build` passes. Live rerun of the same
 query: Groq 120b and 20b both 429 → Gemini wrote all 5 sections; 2 rounds; 21 claims, 19 verified, 2 partial.
 **Note:** saved run d8b0c604 still says "Not found in sources" (recorded before the fix).
+
+## Phase 3.5: Live Report: the report builds on screen while the agents work (2026-10-31)
+
+**Asked:** do not make the user wait for a separate finished report; open a new page that streams it.
+**Backend (additive events, frozen contract fields unchanged)**
+- `live.py`: nodes publish mid-step events to the run's SSE stream (run found via LangGraph's thread_id).
+- `llm.chat(on_text=...)` streams replies (Groq `stream=True`, Gemini `generate_content_stream`; token usage from
+  the final chunk). `write_section` publishes `section_draft {index, text}` at most every 0.25 s.
+- New events: `search_results {query, results}` (raw hits per query, from the API's search wrapper),
+  `report_written {markdown}` (full text before claim verification). `section_written` gains `text`;
+  `search_done` gains `sources [{id,title,url}]`. Drafts are not saved to run.json.
+- Default chains gain `gemini-flash-lite-latest` (`GEMINI_FALLBACK_MODEL`), a second Gemini model with its own
+  capacity, after `gemini-3.1-flash-lite` returned 503 "high demand" during testing.
+**Frontend:** `#/live` (Live Report). Launching from Dashboard / New Research opens it; the top-bar Live button
+opens it (it replaces the live-monitor drawer). It shows: plan headings → web hits per sub-question → numbered
+sources → each section streaming as a labelled draft, then its final cited text → full report while claims are
+verified → the verified report with counts, in place. Stage strip, timer, sources column, optional event log.
+**Checks:** `pytest` 73 passed (3 new: drafts precede final sections and full text precedes verification; drafts not
+saved; search hits precede search_done). `npm run build` passes. Live (Focused, "binary search…"): first web hits at
+3.3 s (previously the first sources appeared at ~26 s), sections at ~53 s, full text at ~59 s while verification ran
+until ~2m48s; 18 of 20 claims verified; no horizontal scroll at 375 px.
+**Known:** Groq's daily quota was spent (~198.8k/200k) during testing, so these runs used Gemini, which streams in
+few large chunks: drafts appear in bursts rather than word by word.

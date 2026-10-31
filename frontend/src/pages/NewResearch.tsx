@@ -21,7 +21,7 @@ export default function NewResearch() {
         <AgentStrip d={d} maxRounds={maxRounds} />
         <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div className="min-w-0 space-y-4">
-            <TopicForm busy={busy} onStart={(t, r, h) => void start(t, r, h)} onError={onError} />
+            <TopicForm busy={busy} onStart={async (t, r, h) => { if (await start(t, r, h)) go('live') }} onError={onError} />
             {showHitl &&
               (d.planPending
                 ? <HitlPanel key={d.pendingAt} mode="plan" items={d.subQuestions} onAnswer={answer} />

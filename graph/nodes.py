@@ -34,6 +34,7 @@ from concurrent.futures import ThreadPoolExecutor
 from langgraph.types import Send, interrupt
 
 import config
+import live
 from llm import chat as llm_chat
 from tools.extract import page_content
 from tools.passages import relevant_passages
@@ -470,6 +471,24 @@ def enforce_citations(
     return kept
 
 
+DRAFT_INTERVAL_SECONDS = 0.25  # how often a section's in-progress text is pushed to the browser
+
+
+def _draft_publisher(index: int):
+    """on_text callback: publish the section's text-so-far as a `section_draft` event, throttled.
+    Drafts are raw model output; the final text (after citation enforcement) arrives with
+    `section_written` and replaces it."""
+    last = [0.0]
+
+    def on_text(text: str) -> None:
+        now = time.monotonic()
+        if now - last[0] >= DRAFT_INTERVAL_SECONDS:
+            last[0] = now
+            live.publish("section_draft", {"index": index, "text": text})
+
+    return on_text
+
+
 def write_section(task: dict) -> dict:
     """Runs once per section (via Send). Writes to `sections` only (it has a reducer)."""
     index, question, findings = task["index"], task["question"], task["findings"]
@@ -486,7 +505,7 @@ def write_section(task: dict) -> dict:
         for attempt in (1, 2):  # first try + one retry with feedback if any sentence had to be dropped
             dropped: list[str] = []
             try:
-                raw = llm_chat(WRITE_SYSTEM, user, temperature=config.WRITE_TEMPERATURE)
+                raw = llm_chat(WRITE_SYSTEM, user, temperature=config.WRITE_TEMPERATURE, on_text=_draft_publisher(index))
             except Exception as exc:
                 errors.append(f"write_section {index + 1} LLM call failed: {type(exc).__name__}: {str(exc)[:200]}")
                 break

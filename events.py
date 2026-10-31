@@ -6,12 +6,18 @@ sends only these events. Each is {"type", "data", "ts"}; ts is epoch millisecond
 
   plan             {sub_questions, awaiting_approval}
   search_started   {round, index (1-based), total, query}; index 1 starts a round's batch
-  search_done      {round, query, result_count}   result_count = new sources from this query
+  search_done      {round, query, result_count, sources}   result_count = new sources from this query;
+                                                 sources = [{id, title, url}] of those new sources
+  search_results   {query, results: [{title, url}]}   live, per query, as soon as the search API answers
+                                                 (before pages are read and given [S#] ids)
   search_failed    {round, query, reason}
   review           {round, complete, gaps}        Hermes' verdict after a round
   gaps_pending     {round, gaps}                  waiting for human approval of the gaps
-  section_written  {section, index, citations, not_found, write_failed}   write_failed = every LLM failed;
+  section_draft    {index, text}               text so far while the LLM writes a section (published live by
+                                                 the node, not from a graph update); raw, before citation checks
+  section_written  {section, index, citations, not_found, write_failed, text}   text = final section   write_failed = every LLM failed;
                                                      the section is NOT claimed to be "not found"
+  report_written   {markdown}                  full report text, before claim verification
   verification     {verified, partial, not_found, unchecked}   claim counts
   contradictions   {count, reviews, reviews_failed}   reviews = Hermes reviews run; contradictions
                                                      are only looked for in reviews that succeeded
@@ -116,7 +122,10 @@ class EventConverter:
                 self.failed_queries.add(q)
                 events.append(make_event("search_failed", {"round": self.round, "query": q, "reason": search_errs[-1]}))
             else:  # 0 is possible: results came back, but every page was already collected earlier
-                events.append(make_event("search_done", {"round": self.round, "query": q, "result_count": len(got)}))
+                events.append(make_event("search_done", {
+                    "round": self.round, "query": q, "result_count": len(got),
+                    "sources": [{"id": f["id"], "title": f["title"], "url": f["url"]} for f in got],
+                }))
         return events
 
     def _hermes_review(self, u: dict) -> list[dict]:
@@ -143,10 +152,14 @@ class EventConverter:
                     "citations": len(find_citations(s["text"])),
                     "not_found": NOT_FOUND in s["text"].lower(),
                     "write_failed": s["text"] == WRITE_FAILED,
+                    "text": s["text"],
                 },
             )
             for s in u.get("sections", [])
         ]
+
+    def _assemble(self, u: dict) -> list[dict]:
+        return [make_event("report_written", {"markdown": u["report"]})] if u.get("report") else []
 
     def _verify_claims(self, u: dict) -> list[dict]:
         counts = {k: 0 for k in ("verified", "partial", "not_found", "unchecked")}

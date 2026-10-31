@@ -43,14 +43,18 @@ def fake_llm(review_reply, writer=default_writer, assembler=default_assembler, v
     """`review_reply(call_no)` returns Hermes' raw text for its n-th call."""
     calls = {"review": 0}
 
-    def _chat(system, user, temperature=0.2, model=None):
+    def _chat(system, user, temperature=0.2, model=None, on_text=None):
         if system == nodes.PLAN_SYSTEM:
             return "```json\n" + json.dumps({"sub_questions": plan}) + "\n```"
         if system == nodes.REVIEW_SYSTEM:
             calls["review"] += 1
             return review_reply(calls["review"])
         if system == nodes.WRITE_SYSTEM:
-            return writer(user)
+            reply = writer(user)
+            if on_text:  # stream like a real model: a partial text, then the whole reply
+                on_text(reply[: len(reply) // 2])
+                on_text(reply)
+            return reply
         if system == nodes.ASSEMBLE_SYSTEM:
             return assembler(user)
         if system == claims_mod.VERIFY_SYSTEM:

@@ -46,7 +46,7 @@ export default function Dashboard() {
             onTopic={setTopic}
             onError={onError}
             onStart={async (t, r, h) => {
-              if (await start(t, r, h)) go('new')
+              if (await start(t, r, h)) go('live')
             }}
           />
 

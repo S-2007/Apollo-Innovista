@@ -16,6 +16,7 @@ reasoning tokens count against Groq's token limits.
 """
 
 import time
+from typing import Callable
 
 import config
 import metering
@@ -55,17 +56,21 @@ _KEYS = {"groq": lambda: config.GROQ_API_KEY, "gemini": lambda: config.GEMINI_AP
 
 
 def chat(
-    system: str, user: str, temperature: float = 0.2, model: str | None = None, provider: str | None = None
+    system: str, user: str, temperature: float = 0.2, model: str | None = None, provider: str | None = None,
+    on_text: Callable[[str], None] | None = None,
 ) -> str:
     """Send one system+user prompt and return the model's text reply.
 
     With no provider/model given, walk config.LLM_CHAIN: a model whose call still fails after its
     retries (spent quota, rate-limit burst, outage) hands the call to the next model. A model whose
     DAILY quota is spent is skipped for LLM_COOLDOWN_SECONDS. With an explicit provider/model (claim
-    verification runs its own chain) exactly that model is used."""
+    verification runs its own chain) exactly that model is used.
+
+    on_text (optional) streams the reply: it is called with the text so far as it arrives. If a model
+    fails and the next one takes over, the text restarts from that model's first chunk."""
     if provider or model:
         provider = provider or config.LLM_PROVIDER
-        return _chat_one(provider, model or (config.GROQ_MODEL if provider == "groq" else config.GEMINI_MODEL), system, user, temperature)
+        return _chat_one(provider, model or (config.GROQ_MODEL if provider == "groq" else config.GEMINI_MODEL), system, user, temperature, on_text)
 
     now = time.monotonic()
     keyed = [(p, m) for p, m in dict.fromkeys(config.LLM_CHAIN) if _KEYS.get(p, lambda: "")()]
@@ -74,7 +79,7 @@ def chat(
     last: Exception | None = None
     for p, m in candidates:
         try:
-            return _chat_one(p, m, system, user, temperature)
+            return _chat_one(p, m, system, user, temperature, on_text)
         except Exception as exc:
             if is_quota_exhausted(exc):
                 _cooling[(p, m)] = time.monotonic() + config.LLM_COOLDOWN_SECONDS
@@ -83,12 +88,16 @@ def chat(
 
 
 @with_retries(config.LLM_MAX_RETRIES)
-def _chat_one(provider: str, name: str, system: str, user: str, temperature: float) -> str:
+def _chat_one(provider: str, name: str, system: str, user: str, temperature: float,
+              on_text: Callable[[str], None] | None = None) -> str:
     """One model, with retries on transient errors. Every attempt (including failed ones) is
     recorded in the usage meter, with token counts as reported by the provider."""
     started = time.monotonic()
     try:
-        text, prompt_tokens, completion_tokens = _call(provider, name, system, user, temperature)
+        if on_text is None:
+            text, prompt_tokens, completion_tokens = _call(provider, name, system, user, temperature)
+        else:
+            text, prompt_tokens, completion_tokens = _stream(provider, name, system, user, temperature, on_text)
     except Exception as exc:
         metering.record("llm", False, time.monotonic() - started, provider=provider, model=name,
                         error=f"{type(exc).__name__}: {str(exc)[:400]}")
@@ -124,3 +133,46 @@ def _call(provider: str, name: str, system: str, user: str, temperature: float) 
     # Gemini bills thinking tokens as output, so they are counted with the completion.
     completion = (getattr(usage, "candidates_token_count", 0) or 0) + (getattr(usage, "thoughts_token_count", 0) or 0)
     return resp.text or "", getattr(usage, "prompt_token_count", 0) or 0, completion
+
+
+def _stream(provider: str, name: str, system: str, user: str, temperature: float,
+            on_text: Callable[[str], None]) -> tuple[str, int, int]:
+    """Like _call, but streams: on_text(text so far) after each chunk. Token usage comes from the
+    final chunk (Groq: x_groq.usage; Gemini: usage_metadata), 0 if the provider omits it."""
+    client = _get_client(provider)
+    text, prompt_tokens, completion_tokens = "", 0, 0
+    if provider == "groq":
+        extra = {"reasoning_effort": "low"} if name.startswith("openai/gpt-oss") else {}
+        for chunk in client.chat.completions.create(
+            model=name,
+            temperature=temperature,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            stream=True,
+            **extra,
+        ):
+            delta = chunk.choices[0].delta.content if chunk.choices else None
+            if delta:
+                text += delta
+                on_text(text)
+            usage = getattr(getattr(chunk, "x_groq", None), "usage", None) or getattr(chunk, "usage", None)
+            if usage:
+                prompt_tokens = getattr(usage, "prompt_tokens", 0) or prompt_tokens
+                completion_tokens = getattr(usage, "completion_tokens", 0) or completion_tokens
+        return text, prompt_tokens, completion_tokens
+
+    from google.genai import types
+
+    for chunk in client.models.generate_content_stream(
+        model=name,
+        contents=user,
+        config=types.GenerateContentConfig(system_instruction=system, temperature=temperature),
+    ):
+        if chunk.text:
+            text += chunk.text
+            on_text(text)
+        usage = getattr(chunk, "usage_metadata", None)
+        if usage:
+            prompt_tokens = getattr(usage, "prompt_token_count", 0) or prompt_tokens
+            completion_tokens = ((getattr(usage, "candidates_token_count", 0) or 0)
+                                 + (getattr(usage, "thoughts_token_count", 0) or 0)) or completion_tokens
+    return text, prompt_tokens, completion_tokens

@@ -8,10 +8,13 @@ export type EventType =
   | 'plan'
   | 'search_started'
   | 'search_done'
+  | 'search_results' // live: raw hits for one query, before pages are read and numbered
   | 'search_failed'
   | 'review'
   | 'gaps_pending'
+  | 'section_draft' // live: a section's text while the LLM writes it (raw, before citation checks)
   | 'section_written'
+  | 'report_written' // the full report text, before claim verification
   | 'verification'
   | 'contradictions'
   | 'report_ready'
@@ -22,11 +25,14 @@ export type EventType =
 export interface EventDataMap {
   plan: { sub_questions?: string[]; awaiting_approval?: boolean }
   search_started: { round?: number; index?: number; total?: number; query?: string }
-  search_done: { round?: number; query?: string; result_count?: number }
+  search_done: { round?: number; query?: string; result_count?: number; sources?: { id: string; title?: string; url: string }[] }
+  search_results: { query?: string; results?: { title?: string; url: string }[] }
   search_failed: { round?: number; query?: string; reason?: string }
   review: { round?: number; complete?: boolean; gaps?: string[] }
   gaps_pending: { round?: number; gaps?: string[] }
-  section_written: { section?: string; index?: number; citations?: number; not_found?: boolean; write_failed?: boolean }
+  section_draft: { index?: number; text?: string }
+  section_written: { section?: string; index?: number; citations?: number; not_found?: boolean; write_failed?: boolean; text?: string }
+  report_written: { markdown?: string }
   verification: { verified?: number; partial?: number; not_found?: number; unchecked?: number }
   contradictions: { count?: number; reviews?: number; reviews_failed?: number }
   report_ready: Record<string, never>
@@ -44,7 +50,7 @@ export type UnknownEvent = { type: string; data: Record<string, unknown>; ts: nu
 export type AnyEvent = RunEvent | UnknownEvent
 
 const KNOWN = new Set<string>([
-  'plan', 'search_started', 'search_done', 'search_failed', 'review', 'gaps_pending', 'section_written',
+  'plan', 'search_started', 'search_results', 'search_done', 'search_failed', 'review', 'gaps_pending', 'section_draft', 'section_written', 'report_written',
   'verification', 'contradictions', 'report_ready', 'warning', 'error', 'complete',
 ])
 

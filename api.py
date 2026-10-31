@@ -55,6 +55,7 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 import config
+import live
 import metering
 from events import EventConverter, make_event, warning_event
 from export import write_report
@@ -145,7 +146,9 @@ def _save(run: Run) -> None:
         doc = {
             "id": run.id, "topic": run.topic, "max_rounds": run.max_rounds, "hitl": run.hitl,
             "status": run.status, "created_at": run.created_at, "finished_at": run.finished_at,
-            "events": list(run.events), "state": run.state, "calls": metering.calls(run.id),
+            # Drafts only matter while a section is being written; the final text is in section_written.
+            "events": [e for e in run.events if e["type"] != "section_draft"],
+            "state": run.state, "calls": metering.calls(run.id),
         }
     try:
         run.out_dir.mkdir(parents=True, exist_ok=True)
@@ -178,6 +181,7 @@ def _load_saved() -> None:
 
 def _execute(run: Run) -> None:
     converter = EventConverter()
+    live.register(run.id, lambda type_, data: _emit(run, [make_event(type_, data)]))
     try:
         graph = build_graph()
         cfg = {"configurable": {"thread_id": run.id}, "recursion_limit": config.GRAPH_RECURSION_LIMIT}
@@ -225,6 +229,8 @@ def _execute(run: Run) -> None:
     except Exception as exc:  # a run-level failure is reported as events, never as a crash
         _emit(run, [make_event("error", {"message": f"Run failed: {type(exc).__name__}: {str(exc)[:300]}"})])
         _finish(run, "failed", {"stop_reason": "error"})
+    finally:
+        live.unregister(run.id)
 
 
 # ---------------------------------------------------------------- demo switch
@@ -256,6 +262,10 @@ def _metered_search(query: str, errors: list[str]) -> list[dict]:
     new_errors = [e for e in errors[before:] if e.startswith("search[")]
     metering.record("search", bool(results) or not new_errors, time.monotonic() - started,
                     query=query, results=len(results), error=new_errors[-1][:200] if new_errors else "")
+    # Show the raw hits now; pages are read and numbered [S#] only when the whole search step ends.
+    live.publish("search_results", {"query": query, "results": [
+        {"title": r.get("title", ""), "url": r.get("url", "")} for r in results if r.get("url")
+    ]})
     return results
 
 

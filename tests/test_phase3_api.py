@@ -269,6 +269,7 @@ def test_usage_meter_attributes_calls_to_run_and_node(client, monkeypatch):
 
     fake = fake_llm(COMPLETE)
     monkeypatch.setattr(llm, "_call", lambda provider, name, system, user, temperature: (fake(system, user, temperature), 100, 20))
+    monkeypatch.setattr(llm, "_stream", lambda provider, name, system, user, temperature, on_text: (fake(system, user, temperature, on_text=on_text), 100, 20))
     monkeypatch.setattr(nodes, "llm_chat", llm.chat)  # the real wrapper, so every call is metered
     monkeypatch.setattr(api, "_real_search", fake_search())
     monkeypatch.setattr(nodes, "web_search", api._metered_search)
@@ -326,3 +327,46 @@ def test_successful_review_reports_no_failures(client):
     events = _sse_events(client, _start(client))
     conflict = next(e["data"] for e in events if e["type"] == "contradictions")
     assert conflict["reviews"] >= 1 and conflict["reviews_failed"] == 0
+
+
+# ---------------------------------------------------------------- live streaming of the report
+
+
+def test_report_streams_before_verification(client):
+    run_id = _start(client)
+    events = _sse_events(client, run_id)
+    types = [e["type"] for e in events]
+
+    drafts = [e for e in events if e["type"] == "section_draft"]
+    assert drafts and all({"index", "text"} <= e["data"].keys() and e["data"]["text"] for e in drafts)
+    for d in drafts:  # each section's draft arrives before that section's final text
+        final = next(i for i, e in enumerate(events) if e["type"] == "section_written" and e["data"]["index"] == d["data"]["index"])
+        assert events.index(d) < final
+    written = [e["data"] for e in events if e["type"] == "section_written"]
+    assert all(w["text"] for w in written)  # final text travels with the event
+
+    # the whole report is on screen before the (slow) claim verification ends
+    assert types.index("report_written") < types.index("verification")
+    report = client.get(f"/api/runs/{run_id}/report").json()
+    assert next(e["data"]["markdown"] for e in events if e["type"] == "report_written") == report["markdown"]
+
+    found = next(e["data"] for e in events if e["type"] == "search_done" and e["data"]["result_count"])
+    assert len(found["sources"]) == found["result_count"] and {"id", "title", "url"} <= found["sources"][0].keys()
+
+
+def test_drafts_are_not_saved_to_disk(client):
+    run_id = _start(client)
+    _wait(client, run_id, lambda s: s["status"] not in api.ACTIVE)
+    saved = json.loads((api.RUNS_DIR / run_id / "run.json").read_text(encoding="utf-8"))
+    assert not any(e["type"] == "section_draft" for e in saved["events"])
+    assert any(e["type"] == "section_written" for e in saved["events"])
+
+
+def test_search_hits_stream_before_the_search_step_ends(client, monkeypatch):
+    monkeypatch.setattr(api, "_real_search", fake_search())
+    monkeypatch.setattr(nodes, "web_search", api._metered_search)
+    events = _sse_events(client, _start(client))
+    types = [e["type"] for e in events]
+    hits = [e["data"] for e in events if e["type"] == "search_results"]
+    assert len(hits) == len(PLAN) and all(h["results"] and {"title", "url"} <= h["results"][0].keys() for h in hits)
+    assert types.index("search_results") < types.index("search_done")

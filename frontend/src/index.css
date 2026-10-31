@@ -63,6 +63,9 @@
   }
   .pulse-border { animation: agent-pulse 1.8s ease-in-out infinite; }
 
+  @keyframes caret-blink { 50% { opacity: 0; } }
+  .caret { animation: caret-blink 1s steps(1) infinite; }
+
   @keyframes feed-fade { from { opacity: 0; } to { opacity: 1; } }
   .feed-in { animation: feed-fade 250ms ease-out; }
 

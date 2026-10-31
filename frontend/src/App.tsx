@@ -1,12 +1,9 @@
 // APOLLO application shell: left sidebar (brand, 13 hash-routed sections, system / AI core /
-// user status), a compact top bar (section, date, run selector, live monitor, mobile menu),
-// and the live-monitor drawer. All run data comes from the store (store.tsx).
+// user status) and a compact top bar (section, date, run selector, Live report button, mobile
+// menu). All run data comes from the store (store.tsx).
 
 import { useEffect, useState } from 'react'
-import AgentStrip from './components/AgentStrip'
-import HitlPanel from './components/HitlPanel'
-import ProgressFeed from './components/ProgressFeed'
-import { PAGES, useRoute, type PageKey } from './router'
+import { PAGES, go, pageLabel, useRoute, type PageKey } from './router'
 import { StoreProvider, useStore } from './store'
 import { Pill, btn, fmtTime } from './ui'
 import Dashboard from './pages/Dashboard'
@@ -22,11 +19,12 @@ import Security from './pages/Security'
 import Cost from './pages/Cost'
 import Verification from './pages/Verification'
 import Reports from './pages/Reports'
+import LiveReport from './pages/LiveReport'
 
 const VIEW: Record<PageKey, () => JSX.Element> = {
   dashboard: Dashboard, new: NewResearch, analytics: Analytics, agents: Agents, planning: Planning,
   claims: Claims, contradictions: Contradictions, sources: Sources, gaps: Gaps, security: Security,
-  cost: Cost, verification: Verification, reports: Reports,
+  cost: Cost, verification: Verification, reports: Reports, live: LiveReport,
 }
 
 // 16px line icons, one path set per section.
@@ -44,6 +42,7 @@ const ICON: Record<PageKey, string> = {
   cost: 'M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2zM8 4.5V8l2.5 1.5',
   verification: 'M8 2 3 4v4c0 3 2.2 5.2 5 6 2.8-.8 5-3 5-6V4zM5.8 8.2l1.6 1.6 3-3',
   reports: 'M4 2h6l3 3v9H4zM10 2v3h3M6 8h5M6 10.5h5',
+  live: 'M2 8h2l2-4 3 8 2-4h3',
 }
 
 function Icon({ d }: { d: string }) {
@@ -84,7 +83,7 @@ function Sidebar({ page, onNavigate }: { page: PageKey; onNavigate: () => void }
       <p className="label px-5 pb-1 pt-4">System</p>
       <ul className="min-h-0 flex-1 overflow-y-auto pb-3">
         {PAGES.map((p, i) => {
-          const active = page === p.key
+          const active = page === p.key || (page === 'live' && p.key === 'new')
           return (
             <li key={p.key}>
               <a
@@ -118,41 +117,9 @@ function Sidebar({ page, onNavigate }: { page: PageKey; onNavigate: () => void }
   )
 }
 
-function LiveMonitor({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { d, maxRounds, events, showHitl, answer, selected } = useStore()
-  useEffect(() => {
-    if (!open) return
-    const on = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', on)
-    return () => window.removeEventListener('keydown', on)
-  }, [open, onClose])
-  if (!open) return null
-  return (
-    <div className="no-print fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label="Live monitor">
-      <button className="absolute inset-0 bg-ink/25" onClick={onClose} aria-label="Close live monitor" />
-      <aside className="absolute inset-y-0 right-0 flex w-full max-w-[460px] flex-col border-l border-line bg-workspace">
-        <header className="flex items-center justify-between border-b border-line bg-surface px-4 py-3">
-          <div className="min-w-0">
-            <p className="label">Live monitor</p>
-            <p className="truncate text-sm text-ink">{selected?.topic ?? 'No run selected'}</p>
-          </div>
-          <button onClick={onClose} className={btn.secondary}>Close</button>
-        </header>
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-          <AgentStrip d={d} maxRounds={maxRounds} />
-          {showHitl && (d.planPending
-            ? <HitlPanel key={d.pendingAt} mode="plan" items={d.subQuestions} onAnswer={answer} />
-            : <HitlPanel key={d.pendingAt} mode="gaps" items={d.gapsPending ?? []} onAnswer={answer} />)}
-          {events.length ? <ProgressFeed events={events} /> : <p className="text-sm text-muted">No events yet.</p>}
-        </div>
-      </aside>
-    </div>
-  )
-}
-
-function TopBar({ page, onMenu, onMonitor }: { page: PageKey; onMenu: () => void; onMonitor: () => void }) {
+function TopBar({ page, onMenu }: { page: PageKey; onMenu: () => void }) {
   const { runs, runId, select, selected, problem, setProblem, busy } = useStore()
-  const title = PAGES.find((p) => p.key === page)?.label
+  const title = pageLabel(page)
   const today = new Date().toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
   return (
     <header className="no-print sticky top-0 z-30 border-b border-line bg-surface">
@@ -175,7 +142,7 @@ function TopBar({ page, onMenu, onMonitor }: { page: PageKey; onMenu: () => void
             {runs.map((r) => <option key={r.run_id} value={r.run_id}>{fmtTime(r.created_at)} · {r.topic}</option>)}
           </select>
           {selected && <span className="hidden sm:inline"><Pill status={selected.status} /></span>}
-          <button onClick={onMonitor} className={btn.secondary} aria-label="Open live monitor">
+          <button onClick={() => go('live')} className={btn.secondary} aria-label="Open the live report" aria-current={page === 'live' ? 'page' : undefined}>
             <span className={`h-1.5 w-1.5 ${busy ? 'bg-accent-strong' : 'bg-muted/40'}`} aria-hidden="true" />
             Live
           </button>
@@ -194,7 +161,6 @@ function TopBar({ page, onMenu, onMonitor }: { page: PageKey; onMenu: () => void
 function Shell() {
   const page = useRoute()
   const [menu, setMenu] = useState(false)
-  const [monitor, setMonitor] = useState(false)
   const View = VIEW[page]
   useEffect(() => {
     if (!menu) return
@@ -217,12 +183,11 @@ function Shell() {
         </div>
       )}
       <div className="min-w-0 bg-workspace">
-        <TopBar page={page} onMenu={() => setMenu(true)} onMonitor={() => setMonitor(true)} />
+        <TopBar page={page} onMenu={() => setMenu(true)} />
         <main id="main" className="mx-auto max-w-[1320px] px-4 py-6 sm:px-6 lg:px-8">
           <View />
         </main>
       </div>
-      <LiveMonitor open={monitor} onClose={() => setMonitor(false)} />
     </div>
   )
 }
