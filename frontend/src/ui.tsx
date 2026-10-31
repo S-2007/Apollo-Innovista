@@ -237,6 +237,7 @@ export const STOP_REASON: Record<string, string> = {
   gaps_skipped_by_user: 'Gap queries skipped by you',
   plan_rejected_by_user: 'Plan rejected by you',
   error: 'Stopped by an error',
+  interrupted: 'Interrupted by a server restart',
 }
 
 /** Download text as a file (client-side export of data already on screen). */

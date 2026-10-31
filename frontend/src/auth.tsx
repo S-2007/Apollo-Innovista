@@ -4,7 +4,7 @@
 // HttpOnly cookie that this code cannot read.
 
 import { createContext, useContext, useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { SIGNED_OUT_EVENT, authLogin, authLogout, authMe, authRegister, type AuthUser } from './api'
+import { SIGNED_OUT_EVENT, authLogin, authLogout, authMe, authRegister, isTransient, type AuthUser } from './api'
 import { btn, field } from './ui'
 
 interface AuthState {
@@ -13,6 +13,7 @@ interface AuthState {
 }
 
 const Ctx = createContext<AuthState | null>(null)
+const WAKE_WAIT_MS = 90_000 // how long to keep retrying while the server wakes up
 
 export function useAuth(): AuthState {
   const s = useContext(Ctx)
@@ -24,21 +25,44 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined) // undefined = still checking
   const [offline, setOffline] = useState<string | null>(null)
 
+  const [waking, setWaking] = useState(false)
+
   useEffect(() => {
-    authMe()
-      .then(setUser)
-      .catch((e: unknown) => {
-        const msg = e instanceof Error ? e.message : ''
-        if (msg.startsWith('Cannot reach')) setOffline(msg)
-        setUser(null)
-      })
+    // A free host may be asleep or restarting (502/503, ~1 minute): keep asking instead of
+    // showing the sign-in screen to someone who is already signed in.
+    let live = true
+    let timer: number | undefined
+    const started = Date.now()
+    const check = () =>
+      authMe()
+        .then((u) => live && setUser(u))
+        .catch((e: unknown) => {
+          if (!live) return
+          if (isTransient(e) && Date.now() - started < WAKE_WAIT_MS) {
+            setWaking(true)
+            timer = window.setTimeout(check, 3000)
+            return
+          }
+          if (isTransient(e)) setOffline(e instanceof Error ? e.message : "Can't reach the server.")
+          setUser(null)
+        })
+    void check()
     const out = () => setUser(null)
     window.addEventListener(SIGNED_OUT_EVENT, out)
-    return () => window.removeEventListener(SIGNED_OUT_EVENT, out)
+    return () => {
+      live = false
+      window.clearTimeout(timer)
+      window.removeEventListener(SIGNED_OUT_EVENT, out)
+    }
   }, [])
 
   if (user === undefined) {
-    return <div className="flex min-h-screen items-center justify-center bg-app font-mono text-xs text-muted" role="status">Checking your session…</div>
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-1 bg-app font-mono text-xs text-muted" role="status">
+        <span>{waking ? 'Waking up the server…' : 'Checking your session…'}</span>
+        {waking && <span>The free server sleeps when idle; this can take up to a minute.</span>}
+      </div>
+    )
   }
   if (user === null) return <AuthScreen onSignedIn={(u) => { setOffline(null); setUser(u) }} notice={offline} />
 

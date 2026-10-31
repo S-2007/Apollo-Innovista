@@ -262,6 +262,10 @@ def _import_legacy() -> None:
                 continue  # a damaged file is skipped, not fatal
 
 
+INTERRUPTED_MESSAGE = ("This run was interrupted because the server restarted (for example it ran out of memory "
+                       "or a new version was deployed). Please start it again.")
+
+
 def _load_saved() -> None:
     """Load finished runs from the database (after importing any older file stores)."""
     try:
@@ -276,11 +280,18 @@ def _load_saved() -> None:
         doc = r.doc or {}
         run.status, run.events, run.state = r.status, doc.get("events", []), doc.get("state")
         run.created_at, run.finished_at = r.created_at, r.finished_at
-        if run.status in ACTIVE:  # saved mid-run by an older server: it can never finish now
-            run.status = "failed"
+        interrupted = run.status in ACTIVE  # saved mid-run by an earlier server process: it can never finish now
+        if interrupted:
+            run.status, run.finished_at = "failed", run.finished_at or int(time.time() * 1000)
+            run.events = run.events + [
+                make_event("error", {"message": INTERRUPTED_MESSAGE}),
+                make_event("complete", {"status": "failed", "stop_reason": "interrupted"}),
+            ]
         metering.load(run.id, doc.get("calls", []))
         with _lock:
             _runs.setdefault(run.id, run)
+        if interrupted:
+            _save(run)  # record the outcome, so the next restart does not report it again
 
 
 # ---------------------------------------------------------------- graph thread
@@ -289,6 +300,9 @@ def _load_saved() -> None:
 def _execute(run: Run) -> None:
     converter = EventConverter()
     live.register(run.id, lambda type_, data: _emit(run, [make_event(type_, data)]))
+    # Store the run as "running" right away: if the server restarts mid-run (out of memory, redeploy),
+    # the next start finds it and marks it interrupted instead of the run silently disappearing.
+    _save(run)
     try:
         graph = build_graph()
         cfg = {"configurable": {"thread_id": run.id}, "recursion_limit": config.GRAPH_RECURSION_LIMIT}
@@ -464,8 +478,10 @@ def run_status(run_id: str, user: User) -> dict:
 @app.get("/api/runs/{run_id}/events")
 async def run_events(run_id: str, request: Request, user: User) -> StreamingResponse:
     run = _get(run_id, user)
-    try:  # EventSource sends the last id it saw when it reconnects: continue after it
-        start = int(request.headers.get("last-event-id", "-1")) + 1
+    # Continue after the last event the client saw: EventSource sends it as a header when it reconnects by
+    # itself; the web app reconnects with ?last_event_id= after the backend was briefly unreachable.
+    try:
+        start = int(request.headers.get("last-event-id") or request.query_params.get("last_event_id") or "-1") + 1
     except ValueError:
         start = 0
 
@@ -484,7 +500,10 @@ async def run_events(run_id: str, request: Request, user: User) -> StreamingResp
             elif finished:
                 return  # all events, including "complete", have been sent
             elif time.monotonic() - last_sent >= HEARTBEAT_SECONDS:
-                yield ": heartbeat\n\n"
+                # A named "ping" event (not an SSE comment, which page scripts never see): the web app
+                # treats a long silence as a dead connection and reconnects. It carries no id, so it
+                # does not move the resume position, and it is not a run event.
+                yield "event: ping\ndata: {}\n\n"
                 last_sent = time.monotonic()
             await asyncio.sleep(0.25)
 

@@ -132,3 +132,16 @@ def test_migration_copies_local_data_into_the_target_database(monkeypatch, tmp_p
     with db.engine().connect() as conn:
         owners = dict(conn.execute(select(db.runs.c.id, db.runs.c.owner)).all())
     assert owners == {"mine": new_id, "old": None}
+
+
+def test_run_cut_off_by_a_restart_is_reported_as_interrupted_once():
+    run = api.Run("Topic", 1, False, run_id="cut")  # saved at start, then the server died
+    api._save(run)
+    for _ in range(2):  # two restarts in a row
+        api._runs.clear()
+        api._load_saved()
+    loaded = api._runs["cut"]
+    types = [e["type"] for e in loaded.events]
+    assert loaded.status == "failed" and types == ["error", "complete"]  # added once, not per restart
+    assert "server restarted" in loaded.events[0]["data"]["message"]
+    assert loaded.events[1]["data"] == {"status": "failed", "stop_reason": "interrupted"}

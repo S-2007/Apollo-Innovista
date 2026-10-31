@@ -15,6 +15,7 @@ const STOP: Record<string, string> = {
   gaps_skipped_by_user: 'gap queries skipped',
   plan_rejected_by_user: 'plan rejected',
   error: 'stopped by an error',
+  interrupted: 'interrupted by a server restart',
 }
 
 const n = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)

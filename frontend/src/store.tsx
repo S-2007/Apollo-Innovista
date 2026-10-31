@@ -4,7 +4,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import {
-  getMetrics, getReport, getSystem, listRuns, resumeRun, startRun,
+  getMetrics, getReport, getSystem, isTransient, listRuns, resumeRun, startRun,
   type AnyEvent, type Metrics, type Report, type ResumeAction, type RunSummary, type SystemInfo,
 } from './api'
 import { derive, type Derived } from './derive'
@@ -12,6 +12,9 @@ import { runFromUrl } from './router'
 import { useRunEvents } from './useRunEvents'
 
 const LIST_POLL_MS = 4000
+// A brief outage (server restarting, Render waking up) should not flash an error: only report the run
+// list as unreachable after this many failed polls in a row (about 12 s).
+const LIST_FAILURES_BEFORE_ERROR = 3
 const METRICS_POLL_MS = 3000
 
 export interface Store {
@@ -34,6 +37,7 @@ export interface Store {
   system: SystemInfo | null
   refreshSystem: () => void
   backendOk: boolean | null // null until the first run-list request answers
+  reconnecting: boolean // the live stream dropped and is reconnecting by itself
 }
 
 const Ctx = createContext<Store | null>(null)
@@ -61,16 +65,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const selected = runs.find((r) => r.run_id === runId) ?? null
   const maxRounds = selected?.max_rounds ?? 2
   const d = derive(stream.events, maxRounds)
-  const busy = runId !== null && !d.finished && !stream.connectionError
+  const busy = runId !== null && !d.finished && !stream.connectionError // still busy while reconnecting
   const refreshRuns = useCallback(() => setTick((t) => t + 1), [])
 
   // Run list: polled, so runs started elsewhere (CLI tests, another tab) and status changes show up.
   useEffect(() => {
     let live = true
+    let failures = 0
     const load = () =>
       listRuns()
         .then((list) => {
           if (!live) return
+          failures = 0
           setRuns(list)
           setListError(null) // a poll that works again clears the earlier failure
           setBackendOk(true)
@@ -78,8 +84,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         })
         .catch((e: unknown) => {
           if (!live) return
+          failures += 1
+          if (failures < LIST_FAILURES_BEFORE_ERROR) return // keep showing the last list; the next poll retries
           setBackendOk(false)
-          setListError(e instanceof Error ? `Run list: ${e.message}` : 'Could not load runs.')
+          setListError(isTransient(e) ? "Can't reach the server right now. Retrying automatically." : e instanceof Error ? e.message : 'Could not load your runs.')
         })
     load()
     const t = window.setInterval(load, LIST_POLL_MS)
@@ -174,7 +182,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       value={{
         runs, runId, selected, select, events: stream.events, d, maxRounds, busy, report, metrics,
         problem: problem ?? listError ?? connProblem, setProblem, start, answer, showHitl, refreshRuns,
-        system, refreshSystem, backendOk,
+        system, refreshSystem, backendOk, reconnecting: stream.reconnecting,
       }}
     >
       {children}

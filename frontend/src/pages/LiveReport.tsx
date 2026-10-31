@@ -104,7 +104,7 @@ function useClock(running: boolean) {
 }
 
 export default function LiveReport() {
-  const { runId, selected, events, d, busy, report, showHitl, answer } = useStore()
+  const { runId, selected, events, d, busy, report, showHitl, answer, reconnecting } = useStore()
   const doc = build(events)
   const now = useClock(busy)
   const [showLog, setShowLog] = useState(false)
@@ -124,7 +124,7 @@ export default function LiveReport() {
   const elapsed = start ? Math.max(0, Math.floor(((d.endMs ?? now) - start) / 1000)) : 0
   const stage = stageOf(events, d.finished, d.hermes === 'active')
   const byId = new Map(doc.sources.map((s) => [s.id, s]))
-  const status = d.status === 'failed' ? 'Stopped' : d.finished ? 'Complete' : d.planPending ? 'Waiting for your approval' : d.gapsPending ? 'Waiting for your approval' : `${STAGES[stage]}…`
+  const status = reconnecting && !d.finished ? 'Reconnecting to the server…' : d.status === 'failed' ? 'Stopped' : d.finished ? 'Complete' : d.planPending ? 'Waiting for your approval' : d.gapsPending ? 'Waiting for your approval' : `${STAGES[stage]}…`
 
   return (
     <div>

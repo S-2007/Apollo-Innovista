@@ -100,7 +100,7 @@ function Sidebar({ page, onNavigate }: { page: PageKey; onNavigate: () => void }
 }
 
 function TopBar({ page, onMenu }: { page: PageKey; onMenu: () => void }) {
-  const { runs, runId, select, selected, problem, setProblem, busy } = useStore()
+  const { runs, runId, select, selected, problem, setProblem, busy, reconnecting } = useStore()
   const title = pageLabel(page)
   const today = new Date().toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
   return (
@@ -124,6 +124,7 @@ function TopBar({ page, onMenu }: { page: PageKey; onMenu: () => void }) {
             {runs.map((r) => <option key={r.run_id} value={r.run_id}>{fmtTime(r.created_at)} · {r.topic}</option>)}
           </select>
           {selected && <span className="hidden sm:inline"><Pill status={selected.status} /></span>}
+          {reconnecting && <span role="status"><Pill status="warn" label="reconnecting…" /></span>}
           <button onClick={() => go('live')} className={btn.secondary} aria-label="Open the live report" aria-current={page === 'live' ? 'page' : undefined}>
             <span className={`h-1.5 w-1.5 ${busy ? 'bg-accent-strong' : 'bg-muted/40'}`} aria-hidden="true" />
             Live

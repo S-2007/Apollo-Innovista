@@ -379,3 +379,14 @@ def test_search_hits_stream_before_the_search_step_ends(client, monkeypatch):
     hits = [e["data"] for e in events if e["type"] == "search_results"]
     assert len(hits) == len(PLAN) and all(h["results"] and {"title", "url"} <= h["results"][0].keys() for h in hits)
     assert types.index("search_results") < types.index("search_done")
+
+
+def test_stream_resumes_after_last_event_id_query(client):
+    run_id = _start(client)
+    events = _sse_events(client, run_id)
+    resumed = []
+    with client.stream("GET", f"/api/runs/{run_id}/events?last_event_id=2") as resp:
+        for line in resp.iter_lines():
+            if line.startswith("data: "):
+                resumed.append(json.loads(line[6:]))
+    assert resumed == events[3:]  # nothing repeated, nothing missed

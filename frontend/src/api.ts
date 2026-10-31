@@ -235,12 +235,22 @@ export type ResumeAction = 'approve' | 'edit' | 'reject' | 'skip'
 /** Fired on window when any API call gets 401 (session missing or expired). */
 export const SIGNED_OUT_EVENT = 'apollo:signed-out'
 
+/** An API failure; `status` is the HTTP status, or 0 when the server could not be reached. */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+  }
+}
+
+/** 0 = unreachable, 502/503/504 = the server is restarting or overloaded: worth retrying quietly. */
+export const isTransient = (e: unknown) => e instanceof ApiError && [0, 502, 503, 504].includes(e.status)
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let resp: Response
   try {
     resp = await fetch(url, init)
   } catch {
-    throw new Error('Cannot reach the backend. Is uvicorn running on port 8000?')
+    throw new ApiError('Cannot reach the server. Check your connection; retrying.', 0)
   }
   if (resp.status === 401 && !url.startsWith('/api/auth/')) {
     // The session expired or was revoked: tell the app to show the sign-in screen.
@@ -254,8 +264,10 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
         ? detail
         : Array.isArray(detail) // FastAPI validation errors: [{loc, msg}]
           ? detail.map((d: { msg?: string; loc?: unknown[] }) => `${(d.loc ?? []).slice(1).join('.')} ${d.msg ?? ''}`.trim()).join('; ')
-          : `Request failed (${resp.status})`
-    throw new Error(msg)
+          : [502, 503, 504].includes(resp.status)
+            ? `The server is restarting or busy (${resp.status}); retrying.`
+            : `Request failed (${resp.status})`
+    throw new ApiError(msg, resp.status)
   }
   return resp.json() as Promise<T>
 }
@@ -275,6 +287,7 @@ export const resumeRun = (runId: string, action: ResumeAction, payload?: { sub_q
 export const getReport = (runId: string) => request<Report>(`/api/runs/${runId}/report`)
 
 export const listRuns = () => request<RunSummary[]>('/api/runs')
+export const getRunStatus = (runId: string) => request<{ status: string; events: number }>(`/api/runs/${runId}`)
 export const getMetrics = (runId: string) => request<Metrics>(`/api/runs/${runId}/metrics`)
 export const getSystem = () => request<SystemInfo>('/api/system')
 

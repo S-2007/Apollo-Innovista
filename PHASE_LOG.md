@@ -552,3 +552,25 @@ same partial/not-found decision for 17/17 claims, same best-matching sentence fo
 18/21 sources (keyword vs embedding pick different sentences), so Render's coverage verdicts can differ from local ones.
 **Checks:** `pytest` 98 passed (new: embed cache computes each text once and keeps order; keyword ranking never embeds;
 verification keyword limit keeps the best matches in source order).
+
+## Phase 3.14: brief outages and server restarts no longer break the page (2026-10-31)
+
+**Reported (Render):** "run list request failed (502)" and "Lost the live connection to the backend". The backend
+process restarted mid-run (out of memory on 512 MB, a redeploy, or waking from sleep); the page gave up at once and the
+running run vanished (it was only saved when finished).
+**Backend:** a run is saved as "running" when it starts; at startup a saved run still "running" becomes failed with an
+`error` ("interrupted because the server restarted… start it again") and `complete {stop_reason: "interrupted"}`,
+saved so it is reported once. The event stream also resumes from `?last_event_id=`. The keep-alive is now a named
+`ping` event every 15 s (an SSE comment is invisible to page scripts).
+**Frontend:** `useRunEvents` reconnects by itself (1 s doubling to 10 s) from the last event id; before each attempt it
+checks the run: fewer events on the server than received means the server restarted, so the stored ending is replayed;
+404 means interrupted. A watchdog treats 40 s without any message or ping as a dead connection (a proxy can keep a dead
+socket open). It reports a lost connection only after 2 minutes of failures. The run list ignores up to 2 failed polls
+in a row; then it says "Can't reach the server right now. Retrying automatically." `ApiError` carries the HTTP status;
+502/503/504/unreachable are retried quietly. On load, a 502 while the free server wakes shows "Waking up the server…"
+for up to 90 s instead of the sign-in screen. The top bar shows "reconnecting…"; the live report says "Reconnecting to
+the server…".
+**Checks:** `pytest` 100 passed (new: an interrupted run is reported once across two restarts; the stream resumes after
+`?last_event_id=` with nothing repeated or missed). Simulated on a temporary database: killing the backend mid-run showed
+"reconnecting…" after ~45 s with no error; restarting it showed the interrupted message. Not yet seen on Render.
+**Root cause on Render still to confirm:** its Events tab shows whether the restart was "Ran out of memory".
