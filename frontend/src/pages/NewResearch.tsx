@@ -1,7 +1,6 @@
 // New Research: launch a run and follow it live: agents, pending human decisions and the
 // event log. The same controls as the dashboard form, with suggestions inline.
 
-import { useCallback } from 'react'
 import AgentStrip from '../components/AgentStrip'
 import HitlPanel from '../components/HitlPanel'
 import ProgressFeed from '../components/ProgressFeed'
@@ -11,8 +10,7 @@ import { useStore } from '../store'
 import { Empty, PageHeader, Panel, btn } from '../ui'
 
 export default function NewResearch() {
-  const { busy, start, setProblem, d, maxRounds, events, showHitl, answer, selected } = useStore()
-  const onError = useCallback((m: string) => setProblem(m), [setProblem])
+  const { busy, start, d, maxRounds, events, showHitl, answer, selected } = useStore()
 
   return (
     <div>
@@ -21,7 +19,7 @@ export default function NewResearch() {
         <AgentStrip d={d} maxRounds={maxRounds} />
         <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div className="min-w-0 space-y-4">
-            <TopicForm busy={busy} onStart={async (t, r, h) => { if (await start(t, r, h)) go('live') }} onError={onError} />
+            <TopicForm busy={busy} onStart={async (t, r, h) => { if (await start(t, r, h)) go('live') }} />
             {showHitl &&
               (d.planPending
                 ? <HitlPanel key={d.pendingAt} mode="plan" items={d.subQuestions} onAnswer={answer} />

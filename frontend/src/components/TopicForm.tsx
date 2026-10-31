@@ -1,10 +1,10 @@
 // Research command form: objective, research depth (= max research rounds, which the backend
-// caps at 2), human approval, and suggested topics from /api/demo-topics. Controls the backend
+// caps at 2) and human approval. It starts empty: no sample topics, so nothing looks like an
+// earlier user's search. Controls the backend
 // cannot honour yet (document upload, source preference, agent count) are shown disabled with
 // the reason, so nothing pretends to work.
 
-import { useEffect, useState } from 'react'
-import { getDemoTopics, type DemoTopic } from '../api'
+import { useState } from 'react'
 import { btn, field } from '../ui'
 
 // The backend enforces the project's hard limit of 2 research rounds (it rejects 3 with a 422).
@@ -17,27 +17,17 @@ const DEPTH = [
 type Props = {
   busy: boolean
   onStart: (topic: string, maxRounds: number, hitl: boolean) => void
-  onError: (message: string) => void
-  compact?: boolean // dashboard version: suggestions are rendered by the page instead
   topic?: string
   onTopic?: (t: string) => void
 }
 
-export default function TopicForm({ busy, onStart, onError, compact, topic: outer, onTopic }: Props) {
+export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Props) {
   const [own, setOwn] = useState('')
   const topic = outer ?? own
   const setTopic = onTopic ?? setOwn
   const [maxRounds, setMaxRounds] = useState<number>(2)
   const [hitl, setHitl] = useState(false)
-  const [demos, setDemos] = useState<DemoTopic[]>([])
   const ready = topic.trim().length >= 3
-
-  useEffect(() => {
-    if (compact) return
-    getDemoTopics()
-      .then((list) => setDemos(Array.isArray(list) ? list : []))
-      .catch((e: unknown) => onError(e instanceof Error ? `Demo topics: ${e.message}` : 'Could not load demo topics.'))
-  }, [onError, compact])
 
   return (
     <form
@@ -55,31 +45,11 @@ export default function TopicForm({ busy, onStart, onError, compact, topic: oute
           value={topic}
           disabled={busy}
           onChange={(e) => setTopic(e.target.value)}
-          placeholder="e.g. Measured yield impact of AI crop advisory apps for smallholder farmers in Odisha"
+          placeholder="Type your research question"
           className={`${field} mt-1.5 resize-none font-display text-[15px]`}
         />
         <p className="mt-1 text-[11px] text-muted">3–300 characters. The report uses retrieved sources only; unsupported points say "not found in sources".</p>
 
-        {!compact && demos.length > 0 && (
-          <div className="mt-3">
-            <p className="label">Suggested topics</p>
-            <div className="mt-1.5 flex flex-wrap gap-2">
-              {demos.map((d) => (
-                <button
-                  key={d.id}
-                  type="button"
-                  disabled={busy}
-                  aria-label={`Demo ${d.id}: ${d.title}`}
-                  title={d.note ? `${d.topic}\n${d.note}` : d.topic}
-                  onClick={() => setTopic(d.topic)}
-                  className="border border-line px-2.5 py-1 text-left text-xs text-ink hover:border-accent-strong disabled:opacity-50"
-                >
-                  <span className="font-mono text-accent-ink">DEMO {d.id}</span> · {d.title}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="grid gap-px border-t border-line bg-hair sm:grid-cols-2">

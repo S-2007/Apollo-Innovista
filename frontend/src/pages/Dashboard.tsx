@@ -1,8 +1,7 @@
 // Dashboard: the Research Command Center. Start a run, pick a suggested topic, see the
 // selected run's live summary, platform statistics, recent sessions and activity over time.
 
-import { useCallback, useEffect, useState } from 'react'
-import { getDemoTopics, type DemoTopic } from '../api'
+import { useState } from 'react'
 import AgentStrip from '../components/AgentStrip'
 import TopicForm from '../components/TopicForm'
 import { go } from '../router'
@@ -12,13 +11,8 @@ import { BarChart, Empty, Legend, PageHeader, Panel, Pill, StackedBar, STATUS_CO
 const KEYS = ['verified', 'partial', 'not_found', 'unchecked'] as const
 
 export default function Dashboard() {
-  const { runs, d, maxRounds, selected, select, runId, busy, start, setProblem, events } = useStore()
+  const { runs, d, maxRounds, selected, select, runId, busy, start, events } = useStore()
   const [topic, setTopic] = useState('')
-  const [demos, setDemos] = useState<DemoTopic[]>([])
-  const onError = useCallback((m: string) => setProblem(m), [setProblem])
-  useEffect(() => {
-    getDemoTopics().then(setDemos).catch((e: unknown) => onError(e instanceof Error ? `Suggested topics: ${e.message}` : 'Could not load suggested topics.'))
-  }, [onError])
 
   const claims = Object.fromEntries(KEYS.map((k) => [k, runs.reduce((a, r) => a + r.claims[k], 0)])) as Record<(typeof KEYS)[number], number>
   const totalClaims = KEYS.reduce((a, k) => a + claims[k], 0)
@@ -40,11 +34,9 @@ export default function Dashboard() {
       <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="min-w-0 space-y-5">
           <TopicForm
-            compact
             busy={busy}
             topic={topic}
             onTopic={setTopic}
-            onError={onError}
             onStart={async (t, r, h) => {
               if (await start(t, r, h)) go('live')
             }}
@@ -125,21 +117,6 @@ export default function Dashboard() {
             )}
           </Panel>
 
-          <Panel label="Suggested" title="Research topics">
-            {!demos.length ? <Empty>No suggestions loaded.</Empty> : (
-              <ul className="space-y-2">
-                {demos.map((t) => (
-                  <li key={t.id}>
-                    <button disabled={busy} onClick={() => setTopic(t.topic)} className="w-full border border-line px-3 py-2 text-left hover:border-accent-strong disabled:opacity-50">
-                      <span className="font-mono text-[10.5px] text-accent-ink">DEMO {t.id}</span>
-                      <span className="block text-sm text-ink">{t.topic}</span>
-                      {t.note && <span className="mt-0.5 block text-[11px] text-muted">{t.note}</span>}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Panel>
         </div>
       </div>
     </div>

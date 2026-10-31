@@ -124,8 +124,10 @@ def test_runs_are_private_to_their_owner():
         assert bob.get(url).status_code == 404, url  # someone else's run looks like a missing one
 
 
-def test_runs_saved_before_accounts_are_visible_to_everyone():
-    legacy = api.Run("Older topic", 1, False, run_id="legacy1")  # owner None
+def test_runs_without_an_owner_are_hidden_from_everyone():
+    legacy = api.Run("Older topic", 1, False, run_id="legacy1")  # saved before accounts: owner None
     legacy.status = "complete"
     api._runs[legacy.id] = legacy
-    assert any(r["run_id"] == "legacy1" for r in signed_in().get("/api/runs").json())
+    for c in (signed_in("a@example.com"), signed_in("b@example.com")):
+        assert c.get("/api/runs").json() == []  # a new account starts with an empty history
+        assert c.get("/api/runs/legacy1").status_code == 404

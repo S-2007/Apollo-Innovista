@@ -92,7 +92,8 @@ START → Apollo plans → (you approve/edit) → Athena searches → Hermes rev
   string, `postgresql://USER:PASSWORD@HOST/DB?sslmode=require`), otherwise in a local SQLite file
   (`output/apollo.db`). Tables are created on first start; older `output/users.db` / `output/runs/*/run.json` data
   is imported once. Accounts use a JWT in an HttpOnly cookie; set `JWT_SECRET` in `.env`. Runs are private to their
-  owner; runs saved before accounts existed are visible to every signed-in user. No email verification or
+  owner. Runs saved before accounts existed have no owner and are hidden from everyone; to keep them, run
+  `python scripts/claim_runs.py --email you@example.com` (then restart the backend). No email verification or
   password reset yet; CORS is for the Vite dev origin only; set `COOKIE_SECURE=true` behind HTTPS.
 - **Cost is shown in tokens.** A dollar estimate appears only if you set `PRICE_<PROVIDER>_INPUT_PER_M` /
   `_OUTPUT_PER_M` in `.env`; prices are not built in because free tiers and prices change.

@@ -21,8 +21,9 @@ to the browser as Server-Sent Events. Endpoints:
   POST /api/cache/clear              forget finished runs and cached embeddings
 
 Every endpoint except /api/auth/* needs a session: a JWT in the HttpOnly `apollo_session` cookie (set by
-login/register) or an `Authorization: Bearer <jwt>` header. Runs belong to the user who started them;
-runs saved before accounts existed have no owner and are visible to every signed-in user.
+login/register) or an `Authorization: Bearer <jwt>` header. Runs belong to the user who started them and
+are visible only to that user. Runs saved before accounts existed have no owner and stay hidden until
+claimed with `python scripts/claim_runs.py --email <account email>`.
 
 Finished runs are saved as rows in the database (db.py: Neon Postgres via DATABASE_URL, or local SQLite) with
 their events, final state and usage meter, and reloaded at startup, so history, analytics and reports survive a
@@ -99,7 +100,7 @@ app.add_middleware(CORSMiddleware, allow_origins=VITE_ORIGINS, allow_methods=["*
 class Run:
     def __init__(self, topic: str, max_rounds: int, hitl: bool, run_id: str | None = None, owner: str | None = None) -> None:
         self.id = run_id or uuid.uuid4().hex
-        self.owner = owner                # user id; None = saved before accounts existed (visible to all)
+        self.owner = owner                # user id; None = saved before accounts existed (hidden until claimed)
         self.created_at = int(time.time() * 1000)
         self.finished_at: int | None = None
         self.topic, self.max_rounds, self.hitl = topic, max_rounds, hitl
@@ -138,7 +139,9 @@ User = Annotated[dict, Depends(current_user)]
 
 
 def _visible(run: "Run", user: dict) -> bool:
-    return run.owner is None or run.owner == user["id"]
+    # Only the owner sees a run. Runs saved before accounts existed have no owner and are shown to
+    # nobody until someone claims them (scripts/claim_runs.py), so one account never sees another's work.
+    return run.owner is not None and run.owner == user["id"]
 
 
 def _get(run_id: str, user: dict) -> Run:

@@ -83,3 +83,26 @@ def test_older_file_stores_are_imported_once(isolated):
         runs = {r.id: r.owner for r in conn.execute(select(db.runs.c.id, db.runs.c.owner))}
     assert len(users) == 1 and runs == {"owned": str(users[0].id), "legacy": None}
     assert auth.login("old@example.com", "old password 1")["id"] == str(users[0].id)  # same password still works
+
+
+def test_claim_script_gives_ownerless_runs_to_one_account():
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location("claim_runs", Path(__file__).parent.parent / "scripts" / "claim_runs.py")
+    claim_runs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(claim_runs)
+
+    owner = auth.register("Me", "me@example.com", "correct horse")
+    other = auth.register("Other", "other@example.com", "correct horse")
+    api._save(_finished_run("old1"))
+    api._save(_finished_run("old2"))
+    api._save(_finished_run("theirs", owner=other["id"]))
+    assert claim_runs.unclaimed() == 2
+    assert claim_runs.claim("ME@example.com") == 2
+    assert claim_runs.unclaimed() == 0
+    with db.engine().connect() as conn:
+        owners = dict(conn.execute(select(db.runs.c.id, db.runs.c.owner)).all())
+    assert owners == {"old1": owner["id"], "old2": owner["id"], "theirs": other["id"]}  # others' runs untouched
+    with pytest.raises(SystemExit):
+        claim_runs.claim("nobody@example.com")

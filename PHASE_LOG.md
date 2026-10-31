@@ -472,3 +472,24 @@ report download with no local files, one-time idempotent import with the old pas
 passes. Local start imported 1 account and 10 runs into `output/apollo.db`; the dashboard lists them after sign-in.
 **Not verified:** a live Neon database (no `DATABASE_URL` was provided); the Postgres path is covered by SQLAlchemy and
 the URL test only.
+
+## Phase 3.8: a new account no longer sees other people's (imported) runs (2026-10-31)
+
+**Reported:** after signing in or signing up, the dashboard showed runs imported from before accounts existed.
+**Cause:** `_visible()` let every signed-in user see ownerless runs (10 imported runs had `owner IS NULL`).
+**Fix:** a run is visible only to its owner; ownerless runs are hidden from everyone (404 like a missing run).
+`scripts/claim_runs.py` lists ownerless runs and, with `--email`, assigns them all to that account (restart the
+backend afterwards). No new dependencies.
+**Checks:** `pytest` 92 passed (ownerless runs hidden from two accounts; claim script assigns only ownerless runs and
+rejects an unknown email).
+
+## Phase 3.9: no sample content that looks like another user's history (2026-10-31)
+
+**Reported:** a user should see only their own searches, nothing that looks like someone else's recent history.
+**Change:** removed the dashboard's "Suggested research topics" panel and the New Research DEMO A/B buttons (demo
+fixtures from `demo/topics.md`, with developer notes), and replaced the objective placeholder (an old demo topic that
+read like earlier input) with "Type your research question". With Phase 3.8 (runs visible only to their owner), a
+fresh account now shows 0 sessions and an empty form. `/api/demo-topics` still exists for the demo script but is not
+used by the UI.
+**Checks:** `npm run build` passes; `pytest` 92 passed; in the browser the dashboard text shows 0 sessions and no
+suggestions, and New Research has no DEMO buttons.
