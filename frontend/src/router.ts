@@ -8,7 +8,6 @@ export const PAGES = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'new', label: 'New Research' },
   { key: 'analytics', label: 'Analytics' },
-  { key: 'agents', label: 'Agent Orchestration' },
   { key: 'claims', label: 'Claims & Evidence' },
   { key: 'evidence', label: 'Evidence Explorer' },
   { key: 'contradictions', label: 'Contradictions' },

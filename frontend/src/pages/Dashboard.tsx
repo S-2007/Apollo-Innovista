@@ -111,7 +111,6 @@ export default function Dashboard() {
                 )}
                 <div className="flex flex-wrap gap-2">
                   {selected.has_report && <button className={btn.primary} onClick={() => go('reports')}>Open report</button>}
-                  <button className={btn.secondary} onClick={() => go('agents')}>Agents</button>
                   <button className={btn.secondary} onClick={() => go('verification')}>Verification</button>
                 </div>
               </div>

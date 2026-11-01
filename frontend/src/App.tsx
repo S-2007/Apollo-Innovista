@@ -10,7 +10,6 @@ import { Pill, btn, fmtTime } from './ui'
 import Dashboard from './pages/Dashboard'
 import NewResearch from './pages/NewResearch'
 import Analytics from './pages/Analytics'
-import Agents from './pages/Agents'
 import Claims from './pages/Claims'
 import EvidenceExplorer from './pages/Evidence'
 import Contradictions from './pages/Contradictions'
@@ -21,7 +20,7 @@ import Reports from './pages/Reports'
 import LiveReport from './pages/LiveReport'
 
 const VIEW: Record<PageKey, () => JSX.Element> = {
-  dashboard: Dashboard, new: NewResearch, analytics: Analytics, agents: Agents,
+  dashboard: Dashboard, new: NewResearch, analytics: Analytics,
   claims: Claims, evidence: EvidenceExplorer, contradictions: Contradictions, sources: Sources,
   cost: Cost, verification: Verification, reports: Reports, live: LiveReport,
 }
@@ -31,7 +30,6 @@ const ICON: Record<PageKey, string> = {
   dashboard: 'M2 2h5v6H2zM9 2h5v3H9zM9 7h5v7H9zM2 10h5v4H2z',
   new: 'M8 3v10M3 8h10',
   analytics: 'M2 14h12M4 12V8M8 12V4M12 12V6',
-  agents: 'M8 2.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM3 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM13 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM7.2 5.3 3.8 10.7M8.8 5.3l3.4 5.4M4.5 12h7',
   claims: 'M3 8.5 6 11.5 13 4.5',
   evidence: 'M7 2.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM10.3 10.3 14 14M5 7h4M7 5v4',
   contradictions: 'M3 4h7l-2-2M13 12H6l2 2',
