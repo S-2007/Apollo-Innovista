@@ -12,7 +12,7 @@ const KEYS = CLAIM_KEYS
 
 export default function Verification() {
   const { report, busy, metrics, system } = useStore()
-  if (!report) return <><PageHeader kicker="10 · Verification" title="Verification" /><NeedsRun what="Verification" busy={busy} /></>
+  if (!report) return <><PageHeader kicker="09 · Verification" title="Verification" /><NeedsRun what="Verification" busy={busy} /></>
 
   const counts = Object.fromEntries(KEYS.map((k) => [k, report.verification.filter((c) => c.status === k).length])) as Record<ClaimStatus, number>
   const total = report.verification.length
@@ -52,7 +52,7 @@ export default function Verification() {
 
   return (
     <div>
-      <PageHeader kicker="10 · Verification" title="Verification" />
+      <PageHeader kicker="09 · Verification" title="Verification" />
       <div className="grid grid-cols-2 gap-px border border-line bg-line md:grid-cols-5 [&>*]:border-0">
         <Stat label="Quality checks" value={`${passed}/${ofTotal}`} sub="passed · list below" tone={passed === ofTotal ? 'good' : passed >= ofTotal / 2 ? 'warn' : 'bad'} />
         <Stat label="Verified" value={pct(counts.verified, total)} sub={`${counts.verified} of ${total} claims`} tone="good" />

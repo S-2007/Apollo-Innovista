@@ -18,13 +18,13 @@ class Finding(TypedDict):
     url: str
     snippet: str   # short text from the search API
     content: str   # extracted page text (capped), "" if extraction failed
-    extracted_by: str  # "trafilatura" | "tavily_raw" | "youtube_captions" | "gemini_transcript" | "" (none)
-    kind: str      # "primary" (original research / official), "secondary" (rule-based, from the URL) or "video"
+    extracted_by: str  # "trafilatura" | "tavily_raw" | "youtube_captions" | "gemini_transcript" | "pdf_text" | "plain_text" | ""
+    kind: str      # "primary" (original research / official), "secondary" (rule-based, from the URL), "video" or "document"
     published: str  # the page's own publication date (YYYY[-MM[-DD]]), "" = it states none
     retrieved_at: int  # research date: when Apollo read the page (epoch seconds)
 
 
-# Finding.section for a source that serves every sub-question: the YouTube video the user shared.
+# Finding.section for a source that serves every sub-question: the YouTube video or a document the user gave.
 ALL_SECTIONS = -1
 
 
@@ -127,6 +127,10 @@ class ResearchState(TypedDict):
     # truncated}; {} when the topic has none. Its transcript is source S1.
     video: dict
 
+    # Documents the user attached (tools/documents.py): [{name, kind, pages, content, truncated, read_to_page}].
+    # Each becomes a source shared by every section, numbered after the video.
+    documents: list[dict]
+
 
 def initial_state(
     topic: str,
@@ -135,6 +139,7 @@ def initial_state(
     started_at: float,
     auto_approve: bool = True,
     review_gaps: bool = True,
+    documents: list[dict] | None = None,
 ) -> ResearchState:
     return ResearchState(
         topic=topic,
@@ -166,4 +171,5 @@ def initial_state(
         quality=[],
         quality_overall="",
         video={},
+        documents=list(documents or []),
     )

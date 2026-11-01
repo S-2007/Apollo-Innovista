@@ -97,9 +97,14 @@ class EventConverter:
     def _apollo_plan(self, u: dict) -> list[dict]:
         self.last_plan = list(u["plan"])
         events = []
-        if u.get("video"):  # the shared video was read: it is source S1, so Athena's counting starts after it
-            self.n_findings = len(u.get("findings", []))
+        # The shared video and attached documents are sources before any search: Athena's counting starts after them.
+        self.n_findings = len(u.get("findings", []))
+        if u.get("video"):
             events.append(make_event("video", u["video"]))
+        docs = [{"id": f["id"], "name": f["title"], "pages": f.get("pages", 0), "truncated": f.get("truncated", False)}
+                for f in u.get("findings", []) if f.get("kind") == "document"]
+        if docs:
+            events.append(make_event("documents", {"documents": docs}))
         return events + [make_event("plan", {"sub_questions": u["plan"], "awaiting_approval": False})]
 
     def _review_plan(self, u: dict) -> list[dict]:

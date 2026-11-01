@@ -39,7 +39,7 @@ export default function Reports() {
   return (
     <div>
       <div className="no-print">
-        <PageHeader kicker="11 · Final reports" title="Research reports">
+        <PageHeader kicker="10 · Final reports" title="Research reports">
           {report && runId && (
             <>
               <a href={reportDownloadUrl(runId)} download className={btn.primary}>Markdown</a>

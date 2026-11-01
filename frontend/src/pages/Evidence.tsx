@@ -6,12 +6,12 @@
 // source text. Runs verified before claims had parts show their best-matching sentence only.
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { getEvidence, videoAt, type ClaimPart, type Contradiction, type Evidence, type EvidenceClaim, type Passage, type PartVerdict, type Source } from '../api'
+import { getEvidence, isAttached, videoAt, type ClaimPart, type Contradiction, type Evidence, type EvidenceClaim, type Passage, type PartVerdict, type Source } from '../api'
 import { sourceCategory } from '../insights'
 import { useStore } from '../store'
 import { CLAIM_KEYS, Empty, Meter, NeedsRun, PageHeader, Panel, Pill, fmtDate, hostOf } from '../ui'
 
-const KICKER = '06 · Evidence explorer'
+const KICKER = '05 · Evidence explorer'
 const TITLE = 'From statement to source'
 
 const STATUS_TEXT: Record<string, string> = {
@@ -233,6 +233,7 @@ function PassageItem({ p, parts, active, onSelect }: { p: Passage; parts: ClaimP
           {parts.map((pt, i) => <Pill key={i} status={VERDICT_PILL[pt.verdict]} label={pt.verdict} />)}
           {p.heading && <span className="truncate text-[11px] text-muted">§ {p.heading}</span>}
           {p.start != null && <span className="font-mono text-[11px] text-accent-ink">▶ {clock(p.start)}</span>}
+          {p.page != null && <span className="font-mono text-[11px] text-accent-ink">p. {p.page}</span>}
           <span className="ml-auto font-mono text-[10.5px] text-muted">sim {p.similarity.toFixed(2)}</span>
         </span>
         <span className="mt-1.5 block text-[13px] leading-relaxed">
@@ -249,6 +250,7 @@ function SourcePanel({ source, passage, claim, conflicts }: { source: Source; pa
   const mine = claim.passages.filter((p) => p.source_id === source.id)
   const best = Math.max(0, ...mine.map((p) => p.similarity))
   const video = source.kind === 'video'
+  const attached = isAttached(source.url)
   return (
     <Panel label={`Source ${source.id}`} title={source.title || hostOf(source.url)}>
       <dl className="space-y-3 text-sm">
@@ -259,20 +261,22 @@ function SourcePanel({ source, passage, claim, conflicts }: { source: Source; pa
               Watch from {clock(passage.start)}, where passage {passage.label} is said ↗
             </a>
           )}
-          {passage && !video && (
+          {attached && <p className="text-xs text-muted">A file you attached: it has no web address to open.</p>}
+          {passage && !video && !attached && (
             <a href={textFragmentUrl(source.url, passage.text)} target="_blank" rel="noreferrer" className="mt-1 block text-xs text-accent-ink underline underline-offset-2">
               Open the page at passage {passage.label} ↗
             </a>
           )}
-          {passage && !video && <p className="mt-0.5 text-[11px] text-muted">Chrome and Edge scroll to and highlight it; if the page has changed, it opens at the top.</p>}
+          {passage && !video && !attached && <p className="mt-0.5 text-[11px] text-muted">Chrome and Edge scroll to and highlight it; if the page has changed, it opens at the top.</p>}
         </Row>
         <Row label="Where in the source">
           {passage ? (
             <>
               {video ? (passage.start != null ? <>Said at {clock(passage.start)} in the video</> : 'Time in the video not found')
+                : passage.page != null ? <>On page {passage.page} of the document</>
                 : passage.heading ? <>Under “{passage.heading}”</> : 'No heading found above it'}
               {passage.position !== null && <span className="text-muted"> · about {Math.round(passage.position * 100)}% into the {video ? 'transcript' : 'extracted text'}</span>}
-              {!video && <p className="mt-0.5 text-[11px] text-muted">Page numbers: not available (web pages, no PDF pages).</p>}
+              {!video && !attached && <p className="mt-0.5 text-[11px] text-muted">Page numbers: not available (web pages, no PDF pages).</p>}
             </>
           ) : <span className="text-muted">No passage from this source.</span>}
         </Row>
@@ -285,7 +289,8 @@ function SourcePanel({ source, passage, claim, conflicts }: { source: Source; pa
           ) : <span className="text-muted">Not available: this run kept no passages per source.</span>}
         </Row>
         <Row label="Source type">
-          {video ? <>Video you shared · {hostOf(source.url)}<p className="mt-0.5 text-[11px] text-muted">Records what the video says, not whether it is true; the other sources check it.</p></> : <>
+          {attached ? <>Document you attached{source.pages ? ` · ${source.pages} pages` : ''}</>
+            : video ? <>Video you shared · {hostOf(source.url)}<p className="mt-0.5 text-[11px] text-muted">Records what the video says, not whether it is true; the other sources check it.</p></> : <>
             {source.kind === 'primary' ? 'Original research or official · ' : source.kind === 'secondary' ? 'Secondary article · ' : ''}
             {sourceCategory(source.url)} · {hostOf(source.url)}
             <p className="mt-0.5 text-[11px] text-muted">A rule-based guess from the web address, not a credibility rating.</p>
@@ -298,6 +303,7 @@ function SourcePanel({ source, passage, claim, conflicts }: { source: Source; pa
         </Row>
         <Row label="Found for">
           {video ? 'Every sub-question: it is the video the research is about'
+            : attached ? 'Every sub-question: you attached it to this research'
             : source.question ? <>Sub-question {source.section}: {source.question}</> : <span className="text-muted">–</span>}
         </Row>
         <Row label="Text read from">
@@ -366,6 +372,8 @@ const TEXT_FROM: Record<string, string> = {
   trafilatura: 'The page itself',
   tavily_raw: 'The search provider’s copy of the page',
   youtube_captions: 'The video’s own captions',
+  pdf_text: 'The PDF’s own text layer, page by page',
+  plain_text: 'The text file as written',
   gemini_transcript: 'A Gemini transcription of the video (it had no usable captions): model output, not captions',
 }
 

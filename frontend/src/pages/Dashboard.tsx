@@ -38,8 +38,8 @@ export default function Dashboard() {
             busy={busy}
             topic={topic}
             onTopic={setTopic}
-            onStart={async (t, r, h) => {
-              if (await start(t, r, h)) go('live')
+            onStart={async (t, r, h, docs) => {
+              if (await start(t, r, h, docs)) go('live')
             }}
           />
 

@@ -792,3 +792,27 @@ watches runs it loaded that another server is running, and records them when the
 approval; server B started and left it "running" (the old code marked it interrupted at this point); after A was
 stopped, B recorded the run as interrupted about 85 s later. `pytest` 164 passed.
 **Needs:** Render redeployed with this version; until then its startup still marks running runs interrupted.
+
+## Phase 3.24: attached documents; Agent Orchestration page removed (2026-11-01)
+
+**Asked:** "Attach document" did not work; remove the Agent Orchestration page.
+**Why attach did nothing:** the button was disabled by design ("the API accepts a topic only"); upload had never
+been built.
+**Now:** `POST /api/documents` reads one file at once (`tools/documents.py`): a PDF's text layer page by page, as
+lines starting "[p. N]", or a .txt / .md file as written; at most 10 MB per file and 40,000 characters kept. A
+scanned PDF (no text layer), a password-protected or broken PDF, or another file type is refused with the reason;
+nothing is guessed (no OCR). `POST /api/runs` takes up to 3 document ids. Each document becomes a source for every
+section, numbered after the YouTube video if there is one; the planner sees lines from each; the writer sees it
+marked "(document the user attached)"; claims citing it are verified like any source, and Evidence Explorer shows
+the page of each passage. Uploads stay in memory for an hour, per user. The CLI takes `--doc FILE`. New packages:
+pypdf 6.21.4 and python-multipart 0.0.33.
+**UI:** "Attach document" opens a file picker (PDF, .txt, .md); each file shows a chip with its pages and characters
+read, or the reason it could not be read, and can be removed. Sources and the report show attached files as text,
+not links. The Agent Orchestration page, its sidebar entry and the Dashboard's "Agents" button are gone; pages are
+renumbered 01-10.
+**Checked:** `pytest` 173 passed (9 new in `test_documents.py`, with PDFs built in memory, including an image-only
+page as a scan); in the browser, a 3-page test PDF (labelled inside as a test document) read as "3 pages" and a
+.pptx was refused with the reason. A run with that PDF attached ("Does regular walking lower blood pressure?")
+completed: the PDF was S1 and cited, 10 claims cited it (7 verified, 3 partial) with page numbers on their
+passages, 13 web sources were added, and the report kept the document's own caveats (not randomised, small groups).
+**Not checked:** real-world PDFs with complex layouts (columns, tables); text extraction quality depends on pypdf.

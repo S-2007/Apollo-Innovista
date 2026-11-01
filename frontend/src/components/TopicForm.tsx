@@ -1,11 +1,20 @@
 // Research command form: objective (a question, or a YouTube link to read and fact-check), research depth (= max research rounds, which the backend
 // caps at 2) and human approval. It starts empty: no sample topics, so nothing looks like an
-// earlier user's search. Controls the backend
-// cannot honour yet (document upload, source preference, agent count) are shown disabled with
-// the reason, so nothing pretends to work.
+// earlier user's search. Attached documents (PDF, .txt, .md) are uploaded and read as soon as they are picked,
+// so a file the server cannot read says why before the run starts. Controls the backend cannot honour yet
+// (source preference, agent count) are shown disabled with the reason, so nothing pretends to work.
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { uploadDocument, type UploadedDocument } from '../api'
 import { btn, field } from '../ui'
+
+const MAX_DOCUMENTS = 3 // the backend's DOCUMENT_MAX_FILES
+const ACCEPT = '.pdf,.txt,.md'
+type Attachment = { key: string; name: string } & (
+  | { state: 'reading' }
+  | { state: 'ready'; doc: UploadedDocument }
+  | { state: 'failed'; error: string }
+)
 
 // The backend enforces the project's hard limit of 2 research rounds (it rejects 3 with a 422).
 export const MAX_ROUNDS_OPTIONS = [1, 2] as const
@@ -19,7 +28,7 @@ const DEPTH = [
 
 type Props = {
   busy: boolean
-  onStart: (topic: string, maxRounds: number, hitl: boolean) => void
+  onStart: (topic: string, maxRounds: number, hitl: boolean, documents: string[]) => void
   topic?: string
   onTopic?: (t: string) => void
 }
@@ -30,15 +39,33 @@ export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Prop
   const setTopic = onTopic ?? setOwn
   const [maxRounds, setMaxRounds] = useState<number>(2)
   const [hitl, setHitl] = useState(false)
-  const ready = topic.trim().length >= 3
+  const [files, setFiles] = useState<Attachment[]>([])
+  const picker = useRef<HTMLInputElement>(null)
+  const reading = files.some((f) => f.state === 'reading')
+  const ready = topic.trim().length >= 3 && !reading
   const video = YOUTUBE.test(topic)
+  const room = MAX_DOCUMENTS - files.filter((f) => f.state !== 'failed').length
+
+  const attach = (picked: FileList | null) => {
+    for (const file of Array.from(picked ?? []).slice(0, Math.max(0, room))) {
+      const key = `${file.name}-${file.size}-${Date.now()}`
+      setFiles((fs) => [...fs, { key, name: file.name, state: 'reading' }])
+      uploadDocument(file).then(
+        (doc) => setFiles((fs) => fs.map((f) => (f.key === key ? { key, name: doc.name, state: 'ready', doc } : f))),
+        (e: unknown) => setFiles((fs) => fs.map((f) => (f.key === key
+          ? { key, name: file.name, state: 'failed', error: e instanceof Error ? e.message : 'Could not read this file.' } : f))),
+      )
+    }
+    if (picker.current) picker.current.value = '' // picking the same file again still triggers onChange
+  }
+  const documentIds = files.flatMap((f) => (f.state === 'ready' ? [f.doc.id] : []))
 
   return (
     <form
       className="@container border border-line bg-surface"
       onSubmit={(e) => {
         e.preventDefault()
-        if (ready && !busy) onStart(topic.trim(), maxRounds, hitl)
+        if (ready && !busy) onStart(topic.trim(), maxRounds, hitl, documentIds)
       }}
     >
       <div className="p-4">
@@ -101,8 +128,36 @@ export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Prop
       </div>
 
       <div className="flex flex-wrap items-center gap-3 border-t border-line p-4">
-        <button type="button" disabled className={btn.secondary} aria-describedby="attach-note">Attach document</button>
-        <span id="attach-note" className="text-[11px] text-muted">Upload not supported: the API accepts a topic only.</span>
+        <input ref={picker} type="file" accept={ACCEPT} multiple hidden onChange={(e) => attach(e.target.files)} />
+        <button type="button" disabled={busy || room <= 0} className={btn.secondary} aria-describedby="attach-note"
+          onClick={() => picker.current?.click()}>
+          Attach document
+        </button>
+        <span id="attach-note" className="text-[11px] text-muted">
+          {room > 0 ? `PDF, .txt or .md · up to ${MAX_DOCUMENTS} files, 10 MB each. Cited and verified like web sources.` : `${MAX_DOCUMENTS} documents attached (the most per run).`}
+        </span>
+        {files.length > 0 && (
+          <ul className="flex w-full flex-wrap gap-2" aria-label="Attached documents">
+            {files.map((f) => (
+              <li key={f.key} className={`feed-in state-fade flex max-w-full items-center gap-2 border px-2.5 py-1.5 text-xs ${
+                f.state === 'failed' ? 'border-err/50 bg-err/[0.06]' : f.state === 'ready' ? 'border-ok/40 bg-ok/[0.05]' : 'border-line'}`}>
+                <span className="min-w-0">
+                  <span className="block truncate font-medium text-ink" title={f.name}>{f.name}</span>
+                  <span className={`block ${f.state === 'failed' ? 'text-err-ink' : 'text-muted'}`}>
+                    {f.state === 'reading' ? 'Reading…'
+                      : f.state === 'failed' ? f.error
+                      : `${f.doc.pages ? `${f.doc.pages} pages` : 'text file'} · ${Math.round(f.doc.chars / 1000)}k characters read${
+                          f.doc.truncated ? ` · cut${f.doc.read_to_page ? ` after page ${f.doc.read_to_page}` : ''} (length limit)` : ''}`}
+                  </span>
+                </span>
+                {f.state !== 'reading' && (
+                  <button type="button" disabled={busy} aria-label={`Remove ${f.name}`} className="ml-1 text-muted hover:text-ink"
+                    onClick={() => setFiles((fs) => fs.filter((x) => x.key !== f.key))}>✕</button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
         <button type="submit" disabled={busy || !ready} className={`${btn.primary} ml-auto min-w-[180px]`}>
           {busy ? 'Research in progress' : <>Initiate research <span className="nudge" aria-hidden="true">→</span></>}
         </button>

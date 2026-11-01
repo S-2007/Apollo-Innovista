@@ -18,7 +18,7 @@ export default function Sources() {
   const [cat, setCat] = useState<SourceCategory | 'all'>('all')
   const [sort, setSort] = useState<Sort>('id')
   const [q, setQ] = useState('')
-  if (!report) return <><PageHeader kicker="08 · Source intelligence" title="Source analysis" /><NeedsRun what="Source intelligence" busy={busy} /></>
+  if (!report) return <><PageHeader kicker="07 · Source intelligence" title="Source analysis" /><NeedsRun what="Source intelligence" busy={busy} /></>
 
   const sources = report.sources
   const fullText = sources.filter((s) => s.extracted_by && s.extracted_by !== 'snippet only').length
@@ -42,7 +42,7 @@ export default function Sources() {
 
   return (
     <div>
-      <PageHeader kicker="08 · Source intelligence" title="Source analysis" />
+      <PageHeader kicker="07 · Source intelligence" title="Source analysis" />
       <div className="grid grid-cols-2 gap-px border border-line bg-line md:grid-cols-4 [&>*]:border-0">
         <Stat label="Sources" value={sources.length} tone="accent" />
         <Stat label="Independent domains" value={domains.size} sub={`${sameDomain.length} domain${sameDomain.length === 1 ? '' : 's'} used more than once`} />
@@ -97,11 +97,20 @@ export default function Sources() {
                 <li key={s.id} className="grid gap-2 px-4 py-3 md:grid-cols-[3rem_minmax(0,1fr)_auto]">
                   <span className="font-mono text-xs text-accent-ink">{s.id}</span>
                   <div className="min-w-0">
-                    <a href={s.url} target="_blank" rel="noreferrer" className="text-sm text-ink underline decoration-line underline-offset-2 hover:decoration-ink [overflow-wrap:anywhere]">{s.title || s.url}</a>
-                    <p className="mt-0.5 truncate font-mono text-[10.5px] text-muted">{s.url}</p>
+                    {s.kind === 'document' ? (
+                      <>
+                        <p className="text-sm text-ink [overflow-wrap:anywhere]">{s.title}</p>
+                        <p className="mt-0.5 font-mono text-[10.5px] text-muted">Attached file{s.pages ? ` · ${s.pages} pages` : ''}; used by every sub-question</p>
+                      </>
+                    ) : (
+                      <>
+                        <a href={s.url} target="_blank" rel="noreferrer" className="text-sm text-ink underline decoration-line underline-offset-2 hover:decoration-ink [overflow-wrap:anywhere]">{s.title || s.url}</a>
+                        <p className="mt-0.5 truncate font-mono text-[10.5px] text-muted">{s.url}</p>
+                      </>
+                    )}
                     {s.question && <p className="mt-1 text-xs text-muted">Retrieved for Q{s.section}: {s.question}</p>}
                     {s.kind === 'video' && <p className="mt-1 text-xs text-muted">The video you shared, read from {s.extracted_by === 'gemini_transcript' ? 'a Gemini transcription (no usable captions)' : 'its captions'}; used by every sub-question.</p>}
-                    {s.retrieved_at && s.kind !== 'video' && (
+                    {s.retrieved_at && s.kind !== 'video' && s.kind !== 'document' && (
                       <p className="mt-0.5 font-mono text-[10.5px] text-muted">
                         Published: {s.published || 'not stated by the page'} · Researched: {fmtDate(s.retrieved_at * 1000)}
                       </p>
@@ -110,7 +119,9 @@ export default function Sources() {
                   </div>
                   <div className="flex flex-wrap content-start gap-1.5 md:max-w-[260px] md:justify-end">
                     {s.kind === 'primary' && <Pill status="working" label="original research / official" />}
-                    {s.kind === 'video' ? <Pill status="working" label="your video · transcript" /> : <Pill status="idle" label={sourceCategory(s.url)} />}
+                    {s.kind === 'video' ? <Pill status="working" label="your video · transcript" />
+                      : s.kind === 'document' ? <Pill status="working" label="your document" />
+                      : <Pill status="idle" label={sourceCategory(s.url)} />}
                     <Pill status={s.extracted_by === 'snippet only' ? 'partial' : 'done'} label={s.extracted_by === 'snippet only' ? 'snippet only' : 'full text'} />
                     <Pill status={s.cited ? 'verified' : 'unchecked'} label={s.cited ? 'cited' : 'not cited'} />
                     {KEYS.filter((k) => s.claims?.[k]).map((k) => <Pill key={k} status={k} label={`${s.claims?.[k]} ${k.replace('_', ' ')}`} />)}

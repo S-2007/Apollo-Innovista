@@ -3,20 +3,18 @@
 
 import { Children, isValidElement, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { reportDownloadUrl, type Claim, type Report, type Source } from '../api'
+import { isAttached, reportDownloadUrl, type Claim, type Report, type Source } from '../api'
 
 function Chip({ id, source }: { id: string; source?: Source }) {
   if (!source?.url) return <span className="font-mono text-xs text-muted">[{id}]</span>
+  const chip = 'mx-0.5 rounded border border-accent/40 bg-accent/10 px-1 font-mono text-[11px] text-accent-ink no-underline hover:bg-ink hover:text-white'
   return (
     <span className="group relative inline-block align-baseline">
-      <a
-        href={source.url}
-        target="_blank"
-        rel="noreferrer"
-        className="mx-0.5 rounded border border-accent/40 bg-accent/10 px-1 font-mono text-[11px] text-accent-ink no-underline hover:bg-ink hover:text-white"
-      >
-        {id}
-      </a>
+      {isAttached(source.url) ? (
+        <span tabIndex={0} className={chip}>{id}</span> // an attached file has no web address to open
+      ) : (
+        <a href={source.url} target="_blank" rel="noreferrer" className={chip}>{id}</a>
+      )}
       {/* opens leftwards from the chip's right edge so it stays inside the page */}
       <span
         role="tooltip"
@@ -24,7 +22,7 @@ function Chip({ id, source }: { id: string; source?: Source }) {
       >
         <span className="block font-semibold text-ink [overflow-wrap:anywhere]">{source.title || id}</span>
         {source.snippet && <span className="mt-1 block">{source.snippet}</span>}
-        <span className="mt-1.5 block font-mono text-[11px] text-accent-ink [overflow-wrap:anywhere]">{source.url}</span>
+        <span className="mt-1.5 block font-mono text-[11px] text-accent-ink [overflow-wrap:anywhere]">{isAttached(source.url) ? 'Document you attached' : source.url}</span>
       </span>
     </span>
   )

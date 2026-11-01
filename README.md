@@ -24,7 +24,7 @@ actually read. Code then checks every claim against an exact quote from that sou
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![Tailwind](https://img.shields.io/badge/Tailwind-4-06B6D4?logo=tailwindcss&logoColor=white)
 ![Postgres](https://img.shields.io/badge/Neon-Postgres-4169E1?logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-164%20passing-2f9e6b)
+![Tests](https://img.shields.io/badge/tests-173%20passing-2f9e6b)
 
 </div>
 
@@ -82,6 +82,8 @@ Apollo treats every sentence of a report as a claim to be checked, and shows the
 - **Human in the loop** (optional): approve or edit the plan and the follow-up queries before they run.
 - **Parallel section writers**, one per sub-question.
 - **YouTube links**: the transcript becomes source S1 for every section.
+- **Attached documents**: up to 3 PDFs, .txt or .md files per run become sources for every section, cited
+  and verified like web pages, with page numbers for PDFs.
 
 </details>
 
@@ -118,15 +120,14 @@ Apollo treats every sentence of a report as a claim to be checked, and shows the
 </details>
 
 <details open>
-<summary><b>Web app</b> (React, 11 pages)</summary>
+<summary><b>Web app</b> (React, 10 pages)</summary>
 
 | Page | What it shows |
 |---|---|
 | Dashboard | Start a run, recent sessions, totals |
-| New Research | Topic form, depth, approval toggle, YouTube detection |
+| New Research | Topic form, depth, approval toggle, YouTube detection, document upload |
 | Live Report | The report as it is written: stage rail, active agents, event log |
 | Analytics | Sessions over time, completion rate, verified-claim trend |
-| Agent Orchestration | The agent network mapped to the real LangGraph nodes |
 | Claims & Evidence | Every checked claim with its evidence chain |
 | Evidence Explorer | Claim → parts → highlighted passage → source (with video timestamps) |
 | Contradictions | Conflicting sources side by side, plus the conflict map |
@@ -142,7 +143,7 @@ Apollo treats every sentence of a report as a claim to be checked, and shows the
 ```mermaid
 flowchart LR
     subgraph Client["Browser"]
-        UI["React 18 + Vite UI<br/>11 pages · live event stream"]
+        UI["React 18 + Vite UI<br/>10 pages · live event stream"]
     end
 
     subgraph Server["FastAPI server (api.py)"]
@@ -526,7 +527,7 @@ sequenceDiagram
 | Auth | scrypt password hashes, JWT (PyJWT) in an HttpOnly, SameSite=strict cookie |
 | Frontend | React 18, Vite, TypeScript (strict), Tailwind CSS 4, react-markdown |
 | Reliability | tenacity retries, model fallback chains, run heartbeats |
-| Tests | pytest, fully offline with fakes (164 tests) |
+| Tests | pytest, fully offline with fakes (173 tests) |
 | Deployment | Docker (Hugging Face Spaces, Render), or an Oracle Cloud VM with Caddy |
 
 ## 11. Project structure
@@ -554,6 +555,7 @@ Apollo-Innovista/
 │   │   ├── search.py            Tavily / Serper with retries
 │   │   ├── extract.py           page text and publication dates
 │   │   ├── video.py             YouTube: link detection, captions, Gemini fallback, timestamps
+│   │   ├── documents.py         attached PDFs and text files, with page markers
 │   │   ├── passages.py          most relevant passages for a question
 │   │   ├── embed.py             embedding model (torch or ONNX), batching, cache
 │   │   ├── quality.py           research-quality rules and checks
@@ -566,12 +568,12 @@ Apollo-Innovista/
 │   │   ├── export.py            Markdown report export
 │   │   └── contradictions.py    interactive conflict map (pyvis)
 │   ├── scripts/                 eval_verifier, check_citations, claim_runs, migrate_to_db
-│   ├── tests/                   164 offline tests
+│   ├── tests/                   173 offline tests
 │   ├── requirements.txt         full install (PyTorch embeddings)
 │   └── requirements-render.txt  small servers (ONNX embeddings, no PyTorch)
 ├── frontend/                    React 18 + Vite + TypeScript + Tailwind 4
 │   └── src/
-│       ├── pages/               the 11 pages and the live report
+│       ├── pages/               the 10 pages and the live report
 │       ├── components/          agent strip, event log, topic form, approval panel, report view
 │       ├── api.ts               typed API client and event types
 │       ├── derive.ts            event list -> everything the UI shows
@@ -720,6 +722,7 @@ All settings live in `.env` at the repository root and have safe defaults (`back
 | `VIDEO_GEMINI_FALLBACK` | `true` | Let Gemini transcribe a video without usable captions |
 | `VIDEO_GEMINI_MODEL` | `GEMINI_MODEL` | Model used for transcription |
 | `VIDEO_TIMEOUT_SECONDS` | `180` | Transcription time limit |
+| `DOCUMENT_MAX_BYTES` | `10000000` | Largest attached file (3 files per run; 40,000 characters of text kept from each) |
 
 </details>
 
@@ -746,7 +749,8 @@ All settings live in `.env` at the repository root and have safe defaults (`back
 
 **Web app**
 
-1. **New Research**: type a question, or paste a YouTube link (optionally followed by a question).
+1. **New Research**: type a question, or paste a YouTube link (optionally followed by a question). Use
+   **Attach document** to add up to 3 PDFs, .txt or .md files; each shows how many pages were read, or why not.
 2. Choose **Focused** (1 round) or **Deep** (2 rounds), and optionally switch on **human approval**.
 3. Watch the **Live Report**: agents, stages, sources and paragraphs appear as they happen.
 4. Open the **Evidence Explorer**: pick a claim to see its parts, the quoted passages and the source, or for a
@@ -761,7 +765,7 @@ All settings live in `.env` at the repository root and have safe defaults (`back
 .venv/Scripts/python backend/run_cli.py "your topic" --hitl          # approve the plan and gap queries in the terminal
 ```
 
-Options: `--max-rounds`, `--timeout`, `--hitl`, `--no-gap-review`, `--out-dir`.
+Options: `--max-rounds`, `--timeout`, `--hitl`, `--no-gap-review`, `--out-dir`, `--doc FILE` (attach a document; repeat up to 3 times).
 
 ## 15. API reference
 
@@ -773,7 +777,8 @@ Every endpoint except `/api/auth/*` needs the session cookie.
 | POST | `/api/auth/login` | Sign in |
 | POST | `/api/auth/logout` | Sign out |
 | GET | `/api/auth/me` | Current user |
-| POST | `/api/runs` | Start a run: `{topic, max_rounds, hitl}`. Returns 503 when every model is out of quota |
+| POST | `/api/documents` | Upload one file (multipart `file`: PDF, .txt, .md). Read at once; returns its id, pages and characters, or 422 with the reason (for example a scanned PDF with no text) |
+| POST | `/api/runs` | Start a run: `{topic, max_rounds, hitl, documents}` (`documents`: up to 3 ids from `/api/documents`). Returns 503 when every model is out of quota |
 | GET | `/api/runs` | Your runs, newest first |
 | GET | `/api/runs/{id}` | Status of one run |
 | GET | `/api/runs/{id}/events` | Live event stream (SSE) |
@@ -798,7 +803,7 @@ Every endpoint except `/api/auth/*` needs the session cookie.
 .venv/Scripts/python -m pytest -q          # from the repository root (pytest.ini points at backend/tests)
 ```
 
-All 164 tests run **offline**: search, pages, LLMs, embeddings and YouTube are fakes, and `conftest.py` blanks every
+All 173 tests run **offline**: search, pages, LLMs, embeddings and YouTube are fakes, and `conftest.py` blanks every
 API key, so a test can never spend quota.
 
 | Area | File |
@@ -808,6 +813,7 @@ API key, so a test can never spend quota.
 | API, events, reports, evidence, metrics | `test_phase3_api.py` |
 | Research-quality rules | `test_quality.py` |
 | YouTube reading, fallbacks, timestamps | `test_video.py` |
+| Attached documents: PDF and text reading, uploads, page numbers | `test_documents.py` |
 | Quota handling and model fallback | `test_quota.py`, `test_llm_chain.py`, `test_verify_parallel.py` |
 | Accounts, database, heartbeats, migration | `test_auth.py`, `test_database.py` |
 | Embedding backends | `test_embed_backend.py` |
@@ -839,17 +845,18 @@ runs.
 - **"Verified" means the source says it**, not that it is true. Each verdict shows its quote, so a person can check.
 - **Hermes is one LLM judgement over excerpts.** It can miss a contradiction or report a scope difference as one.
 - **"Original research" is a rule from the web address**, not a credibility score.
-- **PDFs are not read yet.** Many research papers are PDFs, so this is the most important gap.
+- **PDFs found by web search are skipped**; only PDFs you attach are read. Scanned PDFs (images without a text
+  layer) are refused, because Apollo does not run OCR. Word files are not supported yet.
 - **YouTube:** transcripts are capped at about 45 minutes (the report says when a video was cut), and a Gemini
   transcription is model output, not the video's own captions.
 - **Speed:** a run takes about 2–4 minutes.
 
 ## 19. Roadmap
 
-- PDF reading with page-number citations.
+- Reading PDFs found by web search, and Word (.docx) attachments.
 - A held-out evaluation set for the verifier, scored by people who have not seen Apollo's verdicts.
 - An agent that searches specifically for evidence *against* each claim.
-- Uploading your own documents and images as sources.
+- Images as sources.
 
 ---
 

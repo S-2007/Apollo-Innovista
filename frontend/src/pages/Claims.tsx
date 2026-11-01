@@ -18,7 +18,7 @@ export default function Claims() {
   const [sort, setSort] = useState<Sort>('report')
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<number | null>(null)
-  if (!report) return <><PageHeader kicker="05 · Claims & evidence" title="Claim-level evidence" /><NeedsRun what="Claims and evidence" busy={busy} /></>
+  if (!report) return <><PageHeader kicker="04 · Claims & evidence" title="Claim-level evidence" /><NeedsRun what="Claims and evidence" busy={busy} /></>
 
   const claims = report.verification ?? []
   const byId = new Map(report.sources.map((s) => [s.id, s]))
@@ -32,7 +32,7 @@ export default function Claims() {
 
   return (
     <div>
-      <PageHeader kicker="05 · Claims & evidence" title="Claim-level evidence">
+      <PageHeader kicker="04 · Claims & evidence" title="Claim-level evidence">
         <span className="font-mono text-xs text-muted">{claims.length} claims · {report.sources.length} sources</span>
       </PageHeader>
 

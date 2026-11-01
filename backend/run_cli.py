@@ -5,6 +5,7 @@ Usage:
     python backend/run_cli.py "topic" --hitl                 # pause to approve the plan and gap queries
     python backend/run_cli.py "topic" --hitl --no-gap-review # pause only for the plan
     python backend/run_cli.py "topic" --max-rounds 2 --timeout 180 --out-dir output
+    python backend/run_cli.py "topic" --doc study.pdf --doc notes.md  # attach documents as sources
 
 Streams the graph and prints each new event. In --hitl mode it asks on the
 terminal at each interrupt (Enter = approve). At the end it writes
@@ -16,10 +17,11 @@ import sys
 from pathlib import Path
 
 from core import config
-from reports.export import write_report
 from graph.workflow import stream_research
-from tools.text import CLAIM_STATUSES
 from reports.contradictions import write_contradiction_map
+from reports.export import write_report
+from tools.documents import DocumentUnreadable, read_document
+from tools.text import CLAIM_STATUSES
 
 
 def ask_human(payload: dict):
@@ -52,7 +54,17 @@ def main() -> int:
     parser.add_argument("--hitl", action="store_true", help="human-in-the-loop: auto_approve=False")
     parser.add_argument("--no-gap-review", action="store_true", help="with --hitl, do not pause for gap queries")
     parser.add_argument("--out-dir", default=config.OUTPUT_DIR)
+    parser.add_argument("--doc", action="append", default=[], metavar="FILE",
+                        help="attach a PDF, .txt or .md file as a source (repeat for up to 3)")
     args = parser.parse_args()
+
+    docs = []
+    for path in args.doc[: config.DOCUMENT_MAX_FILES]:
+        try:
+            docs.append(read_document(Path(path).name, Path(path).read_bytes()))
+        except (OSError, DocumentUnreadable) as exc:
+            print(f"Cannot attach {path}: {exc}", file=sys.stderr)
+            return 2
 
     printed = 0
     final = None
@@ -63,6 +75,7 @@ def main() -> int:
         auto_approve=not args.hitl,
         review_gaps=not args.no_gap_review,
         on_interrupt=ask_human,
+        documents=docs,
     ):
         for event in state["events"][printed:]:
             print(event, flush=True)

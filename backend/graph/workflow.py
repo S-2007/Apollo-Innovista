@@ -62,6 +62,7 @@ def stream_research(
     auto_approve: bool = True,
     review_gaps: bool = True,
     on_interrupt: Callable[[dict], object] | None = None,
+    documents: list[dict] | None = None,
 ) -> Iterator[ResearchState]:
     """Yield the full state after every node. The last yielded state is final.
 
@@ -80,6 +81,7 @@ def stream_research(
         started_at=time.time(),
         auto_approve=auto_approve,
         review_gaps=review_gaps,
+        documents=documents,
     )
     while True:
         yield from graph.stream(payload, run_config, stream_mode="values")

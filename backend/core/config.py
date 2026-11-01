@@ -123,6 +123,13 @@ VIDEO_GEMINI_FALLBACK = os.getenv("VIDEO_GEMINI_FALLBACK", "true").strip().lower
 VIDEO_GEMINI_MODEL = os.getenv("VIDEO_GEMINI_MODEL", GEMINI_MODEL)
 VIDEO_TIMEOUT_SECONDS = _int("VIDEO_TIMEOUT_SECONDS", 180)
 
+# --- Attached documents (tools/documents.py) ---
+DOCUMENT_MAX_FILES = 3              # documents per run
+DOCUMENT_MAX_BYTES = _int("DOCUMENT_MAX_BYTES", 10_000_000)  # per file
+DOCUMENT_MAX_CHARS = 40000          # text kept per document (the rest is cut, and the source says so)
+DOCUMENT_PLAN_CHARS = 4000          # lines from the attached documents shown to the planner, in total
+DOCUMENT_UPLOAD_TTL_SECONDS = 3600  # an uploaded file is kept this long for a run to use it
+
 # --- Writing and verification (Phase 2) ---
 WRITE_CHARS_PER_SOURCE = 1200   # most relevant passages per source sent to the writer (TPM limit)
 HERMES_CHARS_PER_SOURCE = 400   # most relevant passages per source shown to Hermes

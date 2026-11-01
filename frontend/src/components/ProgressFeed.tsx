@@ -30,6 +30,15 @@ function describe(e: AnyEvent): Line {
       const upTo = e.data.seconds ? ` · transcript to ${clock(e.data.seconds * 1000)}` : ''
       return { tag: 'VIDEO', text: `read ${e.data.title ?? 'the video'} from ${how}${upTo}${e.data.truncated ? ' (cut: video too long)' : ''}`, tone: 'good' }
     }
+    case 'documents': {
+      const docs = e.data.documents ?? []
+      return {
+        tag: 'DOCS',
+        text: `read ${docs.length} attached document${docs.length === 1 ? '' : 's'}`,
+        tone: 'good',
+        details: docs.map((d) => `${d.id} ${d.name}${d.pages ? ` · ${d.pages} pages` : ''}${d.truncated ? ' · cut at the length limit' : ''}`),
+      }
+    }
     case 'plan': {
       const qs = e.data.sub_questions ?? []
       return e.data.awaiting_approval

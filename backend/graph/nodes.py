@@ -4,6 +4,8 @@ Research loop (Phase 1):
 - apollo_plan    (Apollo, manager): LLM splits the topic into 3-5 sub-questions. If the topic
                  holds a YouTube link, the video's transcript is read first (tools/video.py),
                  becomes source S1 for every section, and the plan covers the video's claims.
+                 Documents the user attached (tools/documents.py) follow as sources for every
+                 section too, and the planner sees lines from them.
 - review_plan    (human): optional interrupt to approve or edit the plan.
 - athena_search  (Athena, searcher): web-searches each pending query, picks the
                  top new pages and numbers them S1, S2, ... in order, tags each
@@ -52,6 +54,7 @@ from tools.quality import (
 )
 from tools.jsonparse import parse_json
 from tools.search import search as web_search
+from tools.documents import document_url
 from tools.video import find_video, plan_excerpt, read_video
 from tools.text import (
     CLAIM_STATUSES,
@@ -173,6 +176,25 @@ def _video_finding(video: dict) -> dict:
     }
 
 
+def _document_finding(doc: dict, source_id: str) -> dict:
+    """A document the user attached, as a source available to every section."""
+    return {
+        "id": source_id,
+        "section": ALL_SECTIONS,
+        "query": "(a document you attached)",
+        "title": doc["name"],
+        "url": document_url(doc["name"]),
+        "snippet": doc["content"][:300],
+        "content": doc["content"],
+        "extracted_by": "pdf_text" if doc["kind"] == "pdf" else "plain_text",
+        "kind": "document",
+        "published": "",
+        "retrieved_at": int(time.time()),
+        "pages": doc.get("pages", 0),
+        "truncated": doc.get("truncated", False),
+    }
+
+
 def _validate_plan(obj) -> list[str] | None:
     if not obj:
         return None
@@ -198,6 +220,13 @@ def apollo_plan(state: ResearchState) -> dict:
         how = "its captions" if video["extracted_by"] == "youtube_captions" else "a Gemini transcription"
         events.append(f"[Apollo] Read the video {video['title']!r} from {how}: {len(video['content'])} characters"
                       + (" (cut at the transcript limit)" if video["truncated"] else ""))
+    documents = state.get("documents") or []
+    if documents:
+        share = config.DOCUMENT_PLAN_CHARS // len(documents)
+        prompt += "\nAttached documents (lines spread over each; cover what they say about the topic):\n" + "\n".join(
+            f"--- {d['name']}\n{plan_excerpt(d['content'], share)}" for d in documents)
+        events.append(f"[Apollo] Read {len(documents)} attached document(s): "
+                      + ", ".join(f"{d['name']!r}" + (f" ({d['pages']} pages)" if d.get("pages") else "") for d in documents))
     plan = None
     for attempt in (1, 2):  # first try + one retry
         try:
@@ -218,9 +247,12 @@ def apollo_plan(state: ResearchState) -> dict:
         events.append("[Apollo] Planning failed; falling back to the topic itself as the only sub-question.")
     events.append(f"[Apollo] Plan ({len(plan)} sub-questions): " + " | ".join(plan))
     update = {"plan": plan, "paused_at": time.time(), "events": events, "errors": errors}
+    findings = [_video_finding(video)] if video else []
+    findings += [_document_finding(d, f"S{len(findings) + i + 1}") for i, d in enumerate(documents)]
+    if findings:
+        update["findings"] = findings
     if video:
-        update.update(findings=[_video_finding(video)],
-                      video={k: v for k, v in video.items() if k not in ("content", "link")})
+        update["video"] = {k: v for k, v in video.items() if k not in ("content", "link")}
     return update
 
 
@@ -396,7 +428,8 @@ def _review_prompt(state: ResearchState, errors: list[str]) -> str:
     for f in state["findings"]:
         question = state["plan"][f["section"]] if 0 <= f["section"] < len(state["plan"]) else state["topic"]
         excerpt = relevant_passages(f["content"] or f["snippet"], question, config.HERMES_CHARS_PER_SOURCE, errors)
-        where = "the user's video, transcript" if f["section"] == ALL_SECTIONS else f"sub-question {f['section'] + 1}"
+        where = (f"sub-question {f['section'] + 1}" if f["section"] != ALL_SECTIONS
+                 else "a document the user attached" if f.get("kind") == "document" else "the user's video, transcript")
         lines.append(f"[{f['id']}] ({where}) {f['title']} — {' '.join(excerpt.split())}")
     if not state["findings"]:
         lines.append("(no sources were found)")
@@ -574,7 +607,8 @@ def _source_block(findings: list[dict], question: str, errors: list[str]) -> str
     parts = []
     for f in sorted(findings, key=lambda f: f.get("kind") != "primary"):
         text = relevant_passages(f["content"] or f["snippet"], question, config.WRITE_CHARS_PER_SOURCE, errors)
-        mark = {"primary": " (original research or official)", "video": " (video transcript)"}.get(f.get("kind"), "")
+        mark = {"primary": " (original research or official)", "video": " (video transcript)",
+                "document": " (document the user attached)"}.get(f.get("kind"), "")
         parts.append(f"[{f['id']}]{mark} {f['title']}\n{text}")
     return "\n\n".join(parts)
 

@@ -6,6 +6,7 @@
 
 export type EventType =
   | 'video' // the YouTube video in the topic was read (its transcript is source S1)
+  | 'documents' // the attached documents were read (each is a source for every section)
   | 'plan'
   | 'search_started'
   | 'search_done'
@@ -27,6 +28,7 @@ export type EventType =
 
 export interface EventDataMap {
   video: VideoInfo
+  documents: { documents?: { id: string; name: string; pages?: number; truncated?: boolean }[] }
   plan: { sub_questions?: string[]; awaiting_approval?: boolean }
   search_started: { round?: number; index?: number; total?: number; query?: string }
   search_done: { round?: number; query?: string; result_count?: number; sources?: { id: string; title?: string; url: string }[] }
@@ -56,7 +58,7 @@ export type UnknownEvent = { type: string; data: Record<string, unknown>; ts: nu
 export type AnyEvent = RunEvent | UnknownEvent
 
 const KNOWN = new Set<string>([
-  'video', 'plan', 'search_started', 'search_results', 'search_done', 'search_failed', 'review', 'gaps_pending', 'section_draft', 'section_written', 'report_written', 'claim_checked',
+  'video', 'documents', 'plan', 'search_started', 'search_results', 'search_done', 'search_failed', 'review', 'gaps_pending', 'section_draft', 'section_written', 'report_written', 'claim_checked',
   'verification', 'quality', 'contradictions', 'report_ready', 'warning', 'error', 'complete',
 ])
 
@@ -97,6 +99,20 @@ export interface VideoInfo {
   truncated?: boolean // the transcript was cut at the backend's length limit
 }
 
+/** A document read by POST /api/documents, ready to attach to a run. */
+export interface UploadedDocument {
+  id: string
+  name: string
+  kind: 'pdf' | 'text'
+  pages: number // 0 for a text file
+  chars: number
+  truncated: boolean // text beyond the backend's limit was cut
+  read_to_page: number | null // with truncated: the last page read
+}
+
+/** An attached document has no web address; the backend gives it a document:// stand-in that is never a link. */
+export const isAttached = (url?: string) => (url ?? '').startsWith('document://')
+
 /** Link to a moment in a YouTube video. */
 export const videoAt = (url: string, seconds: number) => `${url}${url.includes('?') ? '&' : '?'}t=${Math.max(0, Math.floor(seconds))}s`
 
@@ -111,7 +127,8 @@ export interface Source {
   status?: string
   question?: string
   extracted_by?: string // "trafilatura" | "tavily_raw" | "youtube_captions" | "gemini_transcript" | "snippet only"
-  kind?: string // "primary" (original research / official) | "secondary" (rule-based from the URL) | "video"; "" in older runs
+  kind?: string // "primary" (original research / official) | "secondary" (rule-based from the URL) | "video" | "document"; "" in older runs
+  pages?: number | null // attached PDFs only
   published?: string // the page's own publication date (YYYY[-MM[-DD]]); "" = the page states none
   retrieved_at?: number | null // research date: when Apollo read the page (epoch seconds); null in older runs
   cited?: boolean
@@ -149,6 +166,7 @@ export interface Passage {
   position: number | null // where it starts in the extracted text, 0 = start
   heading: string // nearest heading above it in the extracted text
   start?: number | null // video transcripts only: the second this passage is spoken
+  page?: number | null // attached PDFs only: the page this passage is on
 }
 
 export interface EvidenceClaim {
@@ -360,8 +378,15 @@ const post = (body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 })
 
-export const startRun = (topic: string, maxRounds: number, hitl: boolean) =>
-  request<{ run_id: string }>('/api/runs', post({ topic, max_rounds: maxRounds, hitl }))
+export const startRun = (topic: string, maxRounds: number, hitl: boolean, documents: string[] = []) =>
+  request<{ run_id: string }>('/api/runs', post({ topic, max_rounds: maxRounds, hitl, documents }))
+
+/** Upload one file; the server reads it now, so a problem (scanned PDF, wrong type) shows before the run starts. */
+export const uploadDocument = (file: File) => {
+  const body = new FormData()
+  body.append('file', file)
+  return request<UploadedDocument>('/api/documents', { method: 'POST', body })
+}
 
 export const resumeRun = (runId: string, action: ResumeAction, payload?: { sub_questions?: string[]; gaps?: string[] }) =>
   request<{ ok: boolean }>(`/api/runs/${runId}/resume`, post(payload ? { action, payload } : { action }))

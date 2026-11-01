@@ -61,7 +61,7 @@ import uuid
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from langgraph.types import Command
@@ -77,6 +77,7 @@ from reports.events import EventConverter, make_event, warning_event
 from reports.export import render_markdown, write_report
 from tools import embed, passages
 from tools.text import CITE, CLAIM_STATUSES, NOT_FOUND, WRITE_FAILED, find_citations, strip_citations
+from tools.documents import DocumentUnreadable, page_of, read_document
 from tools.video import VideoUnreadable, time_of
 
 VITE_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]  # the Vite dev server only
@@ -120,6 +121,7 @@ class Run:
         self.plan: list[str] = []         # the approved plan (used only by the demo switch)
         self.fail_subquestion = 0         # demo switch: N > 0 makes the N-th sub-question's search fail
         self.local = False                # executed by this process (False: loaded from the database)
+        self.documents: list[dict] = []   # attached documents read by tools/documents.py (input, not saved)
 
 
 _runs: dict[str, Run] = {}
@@ -384,7 +386,8 @@ def _execute(run: Run) -> None:
         graph = build_graph()
         cfg = {"configurable": {"thread_id": run.id}, "recursion_limit": config.GRAPH_RECURSION_LIMIT}
         payload: object = initial_state(
-            run.topic, run.max_rounds, config.TIMEOUT_SECONDS, time.time(), auto_approve=not run.hitl
+            run.topic, run.max_rounds, config.TIMEOUT_SECONDS, time.time(), auto_approve=not run.hitl,
+            documents=run.documents,
         )
         while True:
             for chunk in graph.stream(payload, cfg, stream_mode="updates"):
@@ -484,6 +487,12 @@ class RunRequest(BaseModel):
     topic: str = Field(min_length=3, max_length=300)
     max_rounds: int = Field(default=2, ge=1, le=MAX_ROUNDS_LIMIT)
     hitl: bool = False
+    documents: list[str] = Field(default_factory=list, max_length=config.DOCUMENT_MAX_FILES)  # ids from /api/documents
+
+
+# Documents uploaded for a run that has not started yet: id -> {owner, created, doc}. Kept in memory for
+# DOCUMENT_UPLOAD_TTL_SECONDS (a run copies what it needs into its state), so nothing is written to disk.
+_uploads: dict[str, dict] = {}
 
 
 class ResumeRequest(BaseModel):
@@ -546,7 +555,13 @@ def start_run(req: RunRequest, user: User) -> dict:
     passages.clear_cache()  # bounded memory; each run re-embeds its own sources
     if config.EMBED_WARM_UP:
         embed.warm_up()  # load the model while the run plans and searches, not when verification starts
+    now = time.time()
+    with _lock:
+        docs = [_uploads.get(i) for i in req.documents]
+    if any(d is None or d["owner"] != user["id"] or now - d["created"] > config.DOCUMENT_UPLOAD_TTL_SECONDS for d in docs):
+        raise HTTPException(400, "An attached document has expired or was not uploaded; attach it again.")
     run = Run(req.topic.strip(), req.max_rounds, req.hitl, owner=user["id"])
+    run.documents = [d["doc"] for d in docs]
     run.local = True
     _ensure_watcher()
     if DEMO_FAIL_SUBQUESTION and any(t["id"] == "B" and t["topic"] == run.topic for t in _demo_topics()):
@@ -555,6 +570,25 @@ def start_run(req: RunRequest, user: User) -> dict:
         _runs[run.id] = run
     threading.Thread(target=_execute, args=(run,), daemon=True, name=f"run-{run.id[:8]}").start()
     return {"run_id": run.id}
+
+
+@app.post("/api/documents")
+async def upload_document(user: User, file: UploadFile = File(...)) -> dict:
+    """Read one attached file (PDF, .txt, .md) now, so a problem shows before the run starts. Returns its id for
+    POST /api/runs and what was read; the text stays on the server."""
+    data = await file.read(config.DOCUMENT_MAX_BYTES + 1)
+    try:
+        doc = read_document(file.filename or "document", data)
+    except DocumentUnreadable as exc:
+        raise HTTPException(413 if len(data) > config.DOCUMENT_MAX_BYTES else 422, str(exc)) from exc
+    now = time.time()
+    upload_id = uuid.uuid4().hex
+    with _lock:
+        for key in [k for k, v in _uploads.items() if now - v["created"] > config.DOCUMENT_UPLOAD_TTL_SECONDS]:
+            del _uploads[key]
+        _uploads[upload_id] = {"owner": user["id"], "created": now, "doc": doc}
+    return {"id": upload_id, "name": doc["name"], "kind": doc["kind"], "pages": doc["pages"],
+            "chars": len(doc["content"]), "truncated": doc["truncated"], "read_to_page": doc["read_to_page"]}
 
 
 @app.get("/api/runs/{run_id}")
@@ -650,6 +684,7 @@ def _source_rows(state: dict) -> list[dict]:
             "kind": f.get("kind", ""),                # "primary" | "secondary" ("" in runs before Phase 3.19)
             "published": f.get("published", ""),      # the page's own date, "" = unknown
             "retrieved_at": f.get("retrieved_at"),    # research date (epoch seconds), None in older runs
+            "pages": f.get("pages"),                  # attached PDFs only
             "cited": f["id"] in set(find_citations(state["report"])),
             "claims": {s: statuses.count(s) for s in CLAIM_STATUSES if s in statuses},
         })
@@ -711,11 +746,19 @@ def get_evidence(run_id: str, user: User) -> dict:
         raise HTTPException(409, "the report is not ready yet")
     claims = state["claims"]
     videos = {f["id"]: f["content"] for f in state["findings"] if f.get("kind") == "video"}
+    pdfs = {f["id"]: f["content"] for f in state["findings"] if f.get("extracted_by") == "pdf_text"}
 
     def timed(passages: list[dict]) -> list[dict]:
-        """A passage from the video transcript gains `start`: the second it is spoken (for a link)."""
-        return [{**p, "start": time_of(videos[p["source_id"]], p["text"])} if p.get("source_id") in videos else p
-                for p in passages]
+        """A video passage gains `start` (the second it is spoken), an attached PDF's passage gains `page`."""
+        out = []
+        for p in passages:
+            sid = p.get("source_id")
+            if sid in videos:
+                p = {**p, "start": time_of(videos[sid], p["text"])}
+            elif sid in pdfs:
+                p = {**p, "page": page_of(pdfs[sid], p["text"])}
+            out.append(p)
+        return out
 
     return {
         "legacy": bool(claims) and not any("parts" in c for c in claims),

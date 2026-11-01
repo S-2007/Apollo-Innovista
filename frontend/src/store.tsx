@@ -30,7 +30,7 @@ export interface Store {
   metrics: Metrics | null
   problem: string | null
   setProblem: (m: string | null) => void
-  start: (topic: string, rounds: number, hitl: boolean) => Promise<boolean>
+  start: (topic: string, rounds: number, hitl: boolean, documents?: string[]) => Promise<boolean>
   answer: (action: ResumeAction, payload?: { sub_questions?: string[]; gaps?: string[] }) => Promise<void>
   showHitl: boolean
   refreshRuns: () => void
@@ -149,10 +149,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('hashchange', on)
   }, [select])
 
-  const start = async (topic: string, rounds: number, hitl: boolean) => {
+  const start = async (topic: string, rounds: number, hitl: boolean, documents: string[] = []) => {
     setProblem(null)
     try {
-      const { run_id } = await startRun(topic, rounds, hitl)
+      const { run_id } = await startRun(topic, rounds, hitl, documents)
       setAnsweredAt(-1)
       setRunId(run_id)
       refreshRuns()
