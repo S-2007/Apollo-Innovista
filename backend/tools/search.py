@@ -22,12 +22,13 @@ _retry = with_retries(config.SEARCH_MAX_RETRIES)
 
 
 @_retry
-def _tavily(query: str) -> list[dict]:
+def _tavily(query: str, topic: str = "general") -> list[dict]:
     from tavily import TavilyClient
 
     client = TavilyClient(api_key=config.TAVILY_API_KEY)
     resp = client.search(
         query,
+        topic=topic,  # "news" for the news domain's fallback (tools/sources/adapters.py)
         max_results=config.RESULTS_PER_QUERY,
         include_raw_content="text",
         timeout=config.REQUEST_TIMEOUT_SECONDS,

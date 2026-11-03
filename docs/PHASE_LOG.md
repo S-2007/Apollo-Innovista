@@ -835,3 +835,44 @@ replay-mode run made zero connection attempts). Live, once: OpenAlex, PubMed and
 with abstracts for "walking blood pressure randomized trial"; Semantic Scholar answered 429 without a key.
 **Not done:** statistics, news and tech domains (World Bank, IMF, GDELT, GitHub, Stack Exchange) and Brave;
 routing is keyword rules, not semantic; the UI does not badge cached or stale sources (the report text does).
+
+## Phase 3.26: statistics, news and tech domains (2026-11-03)
+
+**Built:** statistics = World Bank Documents & Reports (abstracts) -> IMF DataMapper (indicator definitions and
+world series; the current year and later are labelled "IMF projection"); news = GDELT DOC 2.0 -> Tavily with
+topic "news"; tech = GitHub repository search -> Stack Overflow (both read as pages, so answers and READMEs are
+used). Keyword routing order: health, tech, statistics, news, academic, else general. `DOMAIN_SOURCES` now
+defaults to all five domains. Optional keys: GITHUB_TOKEN, STACKEXCHANGE_KEY (plus the earlier three).
+**Checked:** `pytest` 205 passed (offline parsing tests for each new adapter). Live, once: World Bank, IMF, GitHub
+and Stack Exchange each returned 5 results; GDELT answered 429 (about one request per 5 s), so news usually falls
+back to Tavily news. Brave (the spec's general fallback) is not added: Serper already fills that role.
+
+## Phase 3.27: Crossref replaces Semantic Scholar as the academic fallback (2026-11-03)
+
+Semantic Scholar answered 429 without a key and its key was not available, so the academic fallback is now
+Crossref (no key; DOI registry). Checked live once: 5 results, 3 with abstracts, for "walking blood pressure
+randomized trial". The Semantic Scholar adapter stays in `ADAPTERS` for anyone with a key.
+
+## Phase 3.28: live check with the team's keys; GDELT, IMF and PubMed fixes (2026-11-04)
+
+**Checked live, with keys:** all 12 adapters answered except GDELT (429); all 6 domains succeeded through the
+router. One full run, "Does regular walking lower blood pressure?", 1 round: complete, 25 sources (Tavily, Europe
+PMC, PubMed), 18 claims: 11 verified, 6 partial, 0 contradicted, 1 not found, 0 unchecked; Groq rate limits hit
+the verifier and the fallback chain absorbed them.
+**Fixed from that run:** (1) GDELT through retries took 46 s: now one attempt with an 8 s timeout, then Tavily news
+(news domain ~13 s). (2) IMF downloaded its whole indicator list per call (26 s): the list is kept in memory for an
+hour and only DOMAIN_PAGES_PER_QUERY + 1 series are fetched. (3) PubMed found nothing for every full-sentence
+sub-question (it requires every term): it now ANDs the key words minus generic research words, dropping words
+from the front until it finds papers. Re-checked live: on-topic papers for all four sub-questions.
+**Still weak:** some domain results pass the 0.30 relevance threshold while being off-topic (a beetroot study for a
+walking question), since the scorer counts shared key words; raise DOMAIN_RELEVANCE for health if this matters.
+`pytest` 209 passed.
+
+## Phase 3.29: The Guardian replaces GDELT as the news primary; keys removed from error messages (2026-11-04)
+
+News is now The Guardian Open Platform (full article body text; free non-commercial developer key,
+GUARDIAN_API_KEY) -> Tavily news. Without the key the Guardian is skipped and Tavily news answers. GDELT stays in
+ADAPTERS but is unused (it answered 429 to most requests). Security fix: a failed request's message carries its URL,
+and some APIs take their key in the URL (Guardian api-key, NCBI api_key, Stack Exchange key, OpenAlex/Crossref
+mailto); `router.redact` now removes those values before a message reaches `errors` (UI and saved runs).
+`pytest` 212 passed.

@@ -135,7 +135,8 @@ FETCH_PUBLISH_DATES = os.getenv("FETCH_PUBLISH_DATES", "true").strip().lower() =
 # --- Source APIs per domain (tools/sources/) ---
 # Domains whose specialist APIs Athena queries IN ADDITION to the general web search, when a sub-question's
 # words route it there (tools/sources/router.classify). "general" (Tavily, then Serper) always runs.
-DOMAIN_SOURCES = tuple(d.strip().lower() for d in os.getenv("DOMAIN_SOURCES", "academic,health").split(",") if d.strip())
+DOMAIN_SOURCES = tuple(d.strip().lower() for d in os.getenv("DOMAIN_SOURCES", "academic,health,statistics,news,tech")
+                       .split(",") if d.strip())
 DOMAIN_PAGES_PER_QUERY = _int("DOMAIN_PAGES_PER_QUERY", 2)  # specialist results kept per query, on top of PAGES_PER_QUERY
 # Results below this relevance (same 0-1 scale and scorer as MIN_RELEVANCE) do not count as a usable answer
 # from an API: the fallback is tried. Override per domain with DOMAIN_RELEVANCE="academic:0.4,health:0.3".
@@ -151,6 +152,9 @@ SOURCE_CACHE_BUSY_SECONDS = _float("SOURCE_CACHE_BUSY_SECONDS", 5.0)  # SQLite w
 OPENALEX_MAILTO = os.getenv("OPENALEX_MAILTO", "")
 SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
 NCBI_API_KEY = os.getenv("NCBI_API_KEY", "")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")          # GitHub search: 10 requests/min without, 30 with
+STACKEXCHANGE_KEY = os.getenv("STACKEXCHANGE_KEY", "")  # Stack Exchange: 300 requests/day without, 10,000 with
+GUARDIAN_API_KEY = os.getenv("GUARDIAN_API_KEY", "")  # The Guardian (news primary): free developer key, required
 
 # --- Replay mode (core/replay.py) ---
 # "live" (default) or "replay": fixed offline answers for every search, source API, LLM, page and embedding

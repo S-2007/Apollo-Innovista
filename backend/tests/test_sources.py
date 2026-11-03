@@ -23,7 +23,7 @@ from tools.sources.adapters import Adapter
 from .fakes import fake_embed, fake_llm, fake_search, verify_reply
 
 Q = "exercise trial results"
-ACADEMIC = adapters.ADAPTERS["openalex"], adapters.ADAPTERS["semantic_scholar"]
+ACADEMIC = adapters.ADAPTERS["openalex"], adapters.ADAPTERS["crossref"]
 
 
 @pytest.fixture(autouse=True)
@@ -86,7 +86,7 @@ def counted_get(monkeypatch):
 
 def test_1_primary_success_skips_the_fallback(monkeypatch):
     install(monkeypatch, "openalex", good)
-    install(monkeypatch, "semantic_scholar", failing(AssertionError("fallback must not be called")))
+    install(monkeypatch, "crossref", failing(AssertionError("fallback must not be called")))
     out = router.fetch("academic", Q)
     assert out["success"] and out["source"] == "openalex" and not out["is_cached"] and out["error"] is None
     assert len(out["results"]) == 3 and all(r["freshness"] == "live" and r["source"] == "openalex" for r in out["results"])
@@ -95,9 +95,9 @@ def test_1_primary_success_skips_the_fallback(monkeypatch):
 
 def test_2_primary_empty_triggers_the_fallback(monkeypatch):
     install(monkeypatch, "openalex", lambda q: [])
-    install(monkeypatch, "semantic_scholar", good)
+    install(monkeypatch, "crossref", good)
     out = router.fetch("academic", Q)
-    assert out["source"] == "semantic_scholar" and out["log"]["fallback_reason"] == "empty"
+    assert out["source"] == "crossref" and out["log"]["fallback_reason"] == "empty"
     assert any("search[openalex] returned no results" in e for e in out["errors"])
 
 
@@ -105,9 +105,9 @@ def test_3_irrelevant_primary_results_trigger_the_fallback(monkeypatch):
     off_topic = [{"title": "Cooking", "url": "https://ex.com/a", "snippet": "",
                   "raw_content": "A recipe for bread and soup with onions and garlic. " * 10}]
     install(monkeypatch, "openalex", lambda q: off_topic)
-    install(monkeypatch, "semantic_scholar", good)
+    install(monkeypatch, "crossref", good)
     out = router.fetch("academic", Q)
-    assert out["source"] == "semantic_scholar" and out["log"]["fallback_reason"] == "irrelevant"
+    assert out["source"] == "crossref" and out["log"]["fallback_reason"] == "irrelevant"
     assert "below relevance 0.30" in out["errors"][0]
 
 
@@ -115,43 +115,43 @@ def test_relevance_uses_the_existing_scorer_and_a_domain_override(monkeypatch):
     half = [{"title": "", "url": "https://ex.com/b", "snippet": "",
              "raw_content": "Exercise was measured in many people over the years of the programme. " * 5}]
     install(monkeypatch, "openalex", lambda q: half)  # shares 1 of the 3 key words: relevance 0.33
-    install(monkeypatch, "semantic_scholar", good)
+    install(monkeypatch, "crossref", good)
     assert router.fetch("academic", Q)["source"] == "openalex"
     monkeypatch.setitem(config.DOMAIN_RELEVANCE, "academic", 0.5)
-    assert router.fetch("academic", Q)["source"] == "semantic_scholar"
+    assert router.fetch("academic", Q)["source"] == "crossref"
 
 
 def test_4_http_429_is_retried_then_falls_back(monkeypatch, counted_get):
     calls = counted_get(status=429)
-    install(monkeypatch, "semantic_scholar", good)
+    install(monkeypatch, "crossref", good)
     out = router.fetch("academic", Q)
     assert len(calls) == config.SEARCH_MAX_RETRIES + 1  # bounded retries on the primary only
-    assert out["source"] == "semantic_scholar" and out["log"]["fallback_reason"] == "rate_limit"
+    assert out["source"] == "crossref" and out["log"]["fallback_reason"] == "rate_limit"
 
 
 def test_5_http_500_is_retried_then_falls_back(monkeypatch, counted_get):
     calls = counted_get(status=500)
-    install(monkeypatch, "semantic_scholar", good)
+    install(monkeypatch, "crossref", good)
     out = router.fetch("academic", Q)
     assert len(calls) == config.SEARCH_MAX_RETRIES + 1
-    assert out["source"] == "semantic_scholar" and out["log"]["fallback_reason"] == "server"
+    assert out["source"] == "crossref" and out["log"]["fallback_reason"] == "server"
 
 
 def test_6_timeout_is_retried_then_falls_back(monkeypatch, counted_get):
     calls = counted_get(exc=requests.Timeout("read timed out"))
-    install(monkeypatch, "semantic_scholar", good)
+    install(monkeypatch, "crossref", good)
     out = router.fetch("academic", Q)
     assert len(calls) == config.SEARCH_MAX_RETRIES + 1
-    assert out["source"] == "semantic_scholar" and out["log"]["fallback_reason"] == "timeout"
+    assert out["source"] == "crossref" and out["log"]["fallback_reason"] == "timeout"
 
 
 def test_7_fallback_success_is_live_and_cached(monkeypatch):
     install(monkeypatch, "openalex", failing(requests.ConnectionError("unreachable")))
-    install(monkeypatch, "semantic_scholar", good)
+    install(monkeypatch, "crossref", good)
     out = router.fetch("academic", Q)
-    assert out["success"] and out["source"] == "semantic_scholar" and not out["is_cached"]
+    assert out["success"] and out["source"] == "crossref" and not out["is_cached"]
     assert out["log"]["fallback_status"] == "ok" and out["log"]["fallback_reason"] == "network"
-    assert cache.get(router.cache_key("academic", Q, {"limit": config.RESULTS_PER_QUERY}))["source"] == "semantic_scholar"
+    assert cache.get(router.cache_key("academic", Q, {"limit": config.RESULTS_PER_QUERY}))["source"] == "crossref"
 
 
 # ---------------------------------------------------------------- 8-10: cache recovery
@@ -159,12 +159,12 @@ def test_7_fallback_success_is_live_and_cached(monkeypatch):
 
 def _both_fail(monkeypatch):
     install(monkeypatch, "openalex", failing(requests.ConnectionError("down")))
-    install(monkeypatch, "semantic_scholar", failing(requests.ConnectionError("down")))
+    install(monkeypatch, "crossref", failing(requests.ConnectionError("down")))
 
 
 def test_8_both_fail_fresh_cache_answers_marked_cached(monkeypatch):
     install(monkeypatch, "openalex", good)
-    install(monkeypatch, "semantic_scholar", good)
+    install(monkeypatch, "crossref", good)
     router.fetch("academic", Q)  # a live answer, stored
     _both_fail(monkeypatch)
     out = router.fetch("academic", "  EXERCISE   trial results ")  # same query once normalised
@@ -333,7 +333,98 @@ def test_pubmed_xml_is_parsed_with_sections_and_dates():
 def test_classify_routes_by_keywords():
     assert router.classify("Does walking lower blood pressure?") == "health"
     assert router.classify("What does research say about remote work?") == "academic"
-    assert router.classify("Who won the G20 summit debate?") == "general"
+    assert router.classify("Who won the G20 summit debate?") == "news"
+    assert router.classify("How fast is India's GDP growth?") == "statistics"
+    assert router.classify("Which Python library parses PDFs?") == "tech"
+    assert router.classify("Who painted the Mona Lisa?") == "general"
+
+
+def _json_get(monkeypatch, routes: dict):
+    """requests.get answering JSON by URL substring (the first matching key wins)."""
+    def fake_get(url, **kwargs):
+        for part, payload in routes.items():
+            if part in url:
+                resp = http(200, payload)
+                resp.url = url
+                return resp
+        raise AssertionError(f"unexpected URL {url}")
+    monkeypatch.setattr(adapters.requests, "get", fake_get)
+
+
+def test_world_bank_documents_are_parsed(monkeypatch):
+    _json_get(monkeypatch, {"worldbank": {"documents": {
+        "D1": {"display_title": "India development update", "abstracts": {"cdata!": "Growth was 7 percent."},
+               "docdt": "2018-02-01T00:00:00Z", "url": "http://documents.worldbank.org/d1"},
+        "facets": {}}}})
+    [r] = adapters.world_bank("India growth")
+    assert r["raw_content"] == "Growth was 7 percent." and r["published"] == "2018-02-01" and r["api_text"]
+
+
+def test_imf_marks_current_and_future_years_as_projections(monkeypatch):
+    year = time.gmtime().tm_year
+    series = {str(y): v for y, v in zip(range(year - 2, year + 4), [3.1, 3.2, 3.3, 3.4, 3.5, 3.6])}
+    _json_get(monkeypatch, {"/indicators": {"indicators": {
+        "NGDP_RPCH": {"label": "Real GDP growth", "unit": "Annual percent change", "description": "GDP growth.",
+                      "source": "World Economic Outlook"},
+        "OTHER": {"label": "Unrelated", "description": "Nothing in common."}}},
+        "/NGDP_RPCH/WEOWORLD": {"values": {"NGDP_RPCH": {"WEOWORLD": series}}}})
+    monkeypatch.setattr(adapters, "_imf_indicators", {"at": 0.0, "items": {}})  # no list cached by another test
+    [r] = adapters.imf("GDP growth")
+    assert f"{year - 1}: 3.2;" in r["raw_content"] and f"{year}: 3.3 (IMF projection)" in r["raw_content"]
+    assert str(year + 2) not in r["raw_content"] and r["published"] == str(year - 1)
+
+
+def test_imf_indicator_list_is_fetched_once_then_kept(monkeypatch):
+    monkeypatch.setattr(adapters, "_imf_indicators", {"at": 0.0, "items": {}})
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        return http(200, {"indicators": {"X": {"label": "Unrelated"}}})
+    monkeypatch.setattr(adapters.requests, "get", fake_get)
+    adapters.imf("GDP growth")
+    adapters.imf("inflation rate")
+    assert len(calls) == 1
+
+
+def test_gdelt_429_is_not_retried(counted_get):
+    calls = counted_get(status=429)
+    with pytest.raises(requests.HTTPError):
+        adapters.gdelt("climate summit agreement")
+    assert len(calls) == 1
+
+
+def test_guardian_429_falls_back_to_tavily_news(monkeypatch, counted_get):
+    calls = counted_get(status=429)
+    monkeypatch.setattr(config, "GUARDIAN_API_KEY", "k")
+    monkeypatch.setattr(config, "TAVILY_API_KEY", "k")
+    monkeypatch.setattr(adapters.web, "_tavily", lambda q, topic="general": good(q) if topic == "news" else [])
+    out = router.fetch("news", "climate summit agreement")
+    assert len(calls) == config.SEARCH_MAX_RETRIES + 1  # bounded retries on the Guardian only
+    assert out["source"] == "tavily_news" and out["log"]["fallback_reason"] == "rate_limit"
+
+
+def test_gdelt_text_answer_is_an_error_not_an_empty_success(monkeypatch):
+    def fake_get(url, **kwargs):
+        resp = http(200)
+        resp._content = b"Your search contained a phrase that was too short."
+        return resp
+    monkeypatch.setattr(adapters.requests, "get", fake_get)
+    with pytest.raises(ValueError, match="did not return JSON"):
+        adapters.gdelt("ai")
+
+
+def test_github_and_stack_exchange_results_are_read_as_pages(monkeypatch):
+    _json_get(monkeypatch, {
+        "api.github.com": {"items": [{"full_name": "a/b", "html_url": "https://github.com/a/b", "description": "A lib",
+                                      "stargazers_count": 5, "language": "Python", "created_at": "2023-08-09T10:00:00Z"}]},
+        "stackexchange": {"items": [{"title": "Timeout &amp; asyncio", "link": "https://stackoverflow.com/q/1",
+                                     "body": "<p>How do I set a timeout?</p>", "creation_date": 1424304000}]}})
+    [g] = adapters.github("python lib")
+    [s] = adapters.stack_exchange("asyncio timeout")
+    assert g["url"] == "https://github.com/a/b" and g["published"] == "2023-08-09" and not g["api_text"]
+    assert s["title"] == "Timeout & asyncio" and s["snippet"] == "How do I set a timeout?"
+    assert s["published"] == "2015-02-19" and not s["api_text"]
 
 
 # ---------------------------------------------------------------- Athena
@@ -382,3 +473,61 @@ def test_stale_sources_are_marked_for_the_writer_and_in_the_report(monkeypatch, 
     assert stale and any("stale cached result from" in p for p in prompts)
     assert "came from stale cached results" in final["report"]
     assert any("using stale cached results" in e for e in final["errors"])
+
+
+def test_crossref_records_are_parsed_with_jats_abstracts(monkeypatch):
+    _json_get(monkeypatch, {"api.crossref.org": {"message": {"items": [
+        {"DOI": "10.1/x", "title": ["Walking and blood pressure"], "published": {"date-parts": [[2019, 5]]},
+         "abstract": "<jats:p>Walking lowered pressure.</jats:p>"},
+        {"DOI": "10.1/y", "title": ["No abstract here"], "published": {"date-parts": [[2008, 1, 1]]}}]}}})
+    a, b = adapters.crossref("walking blood pressure")
+    assert a["url"] == "https://doi.org/10.1/x" and a["raw_content"] == "Walking lowered pressure."
+    assert a["published"] == "2019-05" and a["api_text"] and b["published"] == "2008-01-01" and not b["api_text"]
+
+
+def test_pubmed_searches_key_words_and_drops_from_the_front_until_found(monkeypatch):
+    assert adapters.pubmed_terms("What is the current evidence on walking and blood pressure?") == ["walking", "blood", "pressure"]
+    terms_sent = []
+
+    def fake_get(url, params=None, **kwargs):
+        if "esearch" in url:
+            terms_sent.append(params["term"])
+            ids = ["9"] if params["term"] == "blood pressure" else []
+            return http(200, {"esearchresult": {"idlist": ids}})
+        resp = http(200)
+        resp._content = (b"<PubmedArticleSet><PubmedArticle><MedlineCitation><PMID>9</PMID><Article>"
+                         b"<ArticleTitle>T</ArticleTitle></Article></MedlineCitation></PubmedArticle></PubmedArticleSet>")
+        return resp
+    monkeypatch.setattr(adapters.requests, "get", fake_get)
+    [r] = adapters.pubmed("Does brisk walking lower blood pressure?")
+    assert terms_sent == ["brisk walking lower blood pressure", "walking lower blood pressure", "lower blood pressure",
+                          "blood pressure"] and r["url"].endswith("/9/")
+
+
+def test_keys_in_failed_request_urls_never_reach_error_messages(monkeypatch, counted_get):
+    def fake_get(url, params=None, **kwargs):
+        resp = http(500)
+        resp.url = f"https://content.guardianapis.com/search?q=x&api-key=SECRET123&page-size=5"
+        return resp
+    monkeypatch.setattr(adapters.requests, "get", fake_get)
+    monkeypatch.setattr(config, "GUARDIAN_API_KEY", "SECRET123")
+    out = router.fetch("news", "climate summit agreement")
+    assert out["errors"] and not any("SECRET123" in e for e in out["errors"])
+    assert "api-key=REDACTED" in out["errors"][0]
+    assert router.redact("x?api_key=abc&key=def&mailto=me@ex.com&q=ok") == \
+        "x?api_key=REDACTED&key=REDACTED&mailto=REDACTED&q=ok"
+
+
+def test_guardian_returns_full_article_text_and_falls_back_without_a_key(monkeypatch):
+    _json_get(monkeypatch, {"content.guardianapis.com": {"response": {"results": [
+        {"webTitle": "Summit agrees climate fund", "webUrl": "https://www.theguardian.com/a",
+         "webPublicationDate": "2026-11-02T10:00:00Z",
+         "fields": {"bodyText": "Leaders agreed a climate fund at the summit. " * 10, "trailText": "<p>Fund agreed</p>"}}]}}})
+    monkeypatch.setattr(config, "GUARDIAN_API_KEY", "k")
+    [r] = adapters.guardian("climate summit agreement")
+    assert r["api_text"] and r["published"] == "2026-11-02" and r["snippet"] == "Fund agreed"
+    monkeypatch.setattr(config, "GUARDIAN_API_KEY", "")
+    monkeypatch.setattr(config, "TAVILY_API_KEY", "k")
+    monkeypatch.setattr(adapters.web, "_tavily", lambda q, topic="general": good(q))
+    out = router.fetch("news", "climate summit agreement")
+    assert out["source"] == "tavily_news" and out["log"]["primary_status"] == "not_configured"

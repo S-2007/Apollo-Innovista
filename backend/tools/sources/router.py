@@ -39,8 +39,13 @@ log = logging.getLogger("apollo.sources")
 
 DOMAINS: dict[str, dict[str, str]] = {
     "general": {"primary": "tavily", "fallback": "serper"},
-    "academic": {"primary": "openalex", "fallback": "semantic_scholar"},
+    # Crossref needs no key; Semantic Scholar mostly answers 429 without one (its adapter stays available).
+    "academic": {"primary": "openalex", "fallback": "crossref"},
     "health": {"primary": "pubmed", "fallback": "europe_pmc"},
+    "statistics": {"primary": "world_bank", "fallback": "imf"},
+    # The Guardian gives full article text; without GUARDIAN_API_KEY it is skipped and Tavily news answers.
+    "news": {"primary": "guardian", "fallback": "tavily_news"},
+    "tech": {"primary": "github", "fallback": "stack_exchange"},
 }
 
 # Checked in this order; the first domain with a matching word wins, else "general".
@@ -49,6 +54,17 @@ _DOMAIN_WORDS: list[tuple[str, re.Pattern]] = [
         r"\b(health|medical|medicine|clinical|patients?|disease|diseases|symptoms?|treatments?|therap(y|ies)|"
         r"drugs?|vaccines?|cancer|diabetes|blood pressure|hypertension|infections?|virus(es)?|covid|"
         r"mental health|depression|anxiety|obesity|nutrition|diet|dose|dosage|hospital|mortality)\b", re.I)),
+    ("tech", re.compile(
+        r"\b(python|javascript|typescript|java|rust|golang|c\+\+|programming|code|coding|software|library|"
+        r"libraries|framework|frameworks|api|apis|sdk|github|open[- ]source|bug|compiler|docker|kubernetes|"
+        r"react|database|sql|devops|llms?|langchain|langgraph)\b", re.I)),
+    ("statistics", re.compile(
+        r"\b(gdp|inflation|unemployment|population|poverty|statistics|statistical|per capita|census|"
+        r"exports?|imports?|trade deficit|public debt|interest rates?|economy|economic|economies|growth rate|"
+        r"income|wages|literacy rate|fiscal)\b", re.I)),
+    ("news", re.compile(
+        r"\b(news|latest|recent|recently|today|this week|this month|announced|announcement|breaking|"
+        r"election|elections|summit|protests?|ceasefire|policy change|20[2-9]\d)\b", re.I)),
     ("academic", re.compile(
         r"\b(stud(y|ies)|research|papers?|journals?|peer[- ]reviewed|meta[- ]analys[ie]s|systematic review|"
         r"experiments?|evidence|theory|theories|scientific|scientists?|academic|literature)\b", re.I)),
@@ -94,6 +110,15 @@ def error_category(exc: BaseException) -> str:
     return "error"
 
 
+# A failed request's message carries its URL, and some APIs take their key in the URL (api-key=, api_key=, key=).
+# Error messages reach the UI and the saved run, so every such value is removed first.
+_SECRET_PARAM = re.compile(r"(?i)\b((?:api[-_]?key|key|token|access_token|mailto)=)[^&\s'\"]+")
+
+
+def redact(message: str) -> str:
+    return _SECRET_PARAM.sub(r"\1REDACTED", message)
+
+
 def _usable(results: list[dict], query: str, threshold: float) -> list[dict]:
     kept = []
     for r in results:
@@ -114,7 +139,8 @@ def _attempt(name: str, role: str, query: str, threshold: float) -> tuple[list[d
         raw = replay.source(name, role, query) if replay.active() else adapter.fn(query)
     except Exception as exc:  # retries already happened inside the adapter
         category = error_category(exc)
-        return [], category, f"search[{name}] failed for {query!r}: {category}: {type(exc).__name__}: {str(exc)[:200]}"
+        return [], category, (f"search[{name}] failed for {query!r}: {category}: {type(exc).__name__}: "
+                              f"{redact(str(exc))[:200]}")
     if not raw:
         return [], "empty", f"search[{name}] returned no results for {query!r}"
     kept = _usable(raw, query, threshold)
