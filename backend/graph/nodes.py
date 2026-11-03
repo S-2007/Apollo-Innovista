@@ -40,7 +40,7 @@ from langgraph.types import Send, interrupt
 
 from core import config, live, llm
 from core.llm import chat as llm_chat
-from tools.extract import page_content, page_date
+from tools.extract import api_content, page_content, page_date
 from tools.passages import relevant_passages
 from tools.quality import (
     limits_section,
@@ -54,6 +54,8 @@ from tools.quality import (
 )
 from tools.jsonparse import parse_json
 from tools.search import search as web_search
+from tools.sources.router import classify
+from tools.sources.router import search_domain as domain_search
 from tools.documents import document_url
 from tools.video import find_video, plan_excerpt, read_video
 from tools.text import (
@@ -305,7 +307,7 @@ def athena_search(state: ResearchState) -> dict:
 
     # Step 1: search all queries at once (each mostly waits on the search API), then pick new pages
     # and assign ids in query order, so the numbering does not depend on which search finished first.
-    new: list[tuple[dict, str]] = []  # (finding without content, search-provider raw text)
+    new: list[tuple[dict, str, bool]] = []  # (finding without content, provider raw text, raw is the API's own text)
     items = list(state["pending_queries"])
     events.append(f"[Athena] Round {rnd}: searching {len(items)} queries")
     if items and _timed_out(state):
@@ -315,7 +317,11 @@ def athena_search(state: ResearchState) -> dict:
 
     def _search(item):
         errs: list[str] = []
-        return web_search(item["query"], errs), errs
+        web = web_search(item["query"], errs)
+        # A specialist domain (papers, medical literature) is searched too, on top of the web search.
+        domain = classify(item["query"])
+        extra = domain_search(domain, item["query"], errs) if domain in config.DOMAIN_SOURCES else []
+        return web, extra, errs
 
     with ThreadPoolExecutor(max_workers=max(1, min(config.SEARCH_WORKERS, len(items) or 1))) as pool:
         # Each search runs in its own copy of this thread's context (copied here, not in the worker), so the
@@ -323,45 +329,55 @@ def athena_search(state: ResearchState) -> dict:
         contexts = [contextvars.copy_context() for _ in items]
         found = list(pool.map(lambda ctx, item: ctx.run(_search, item), contexts, items))
 
-    for item, (results, errs) in zip(items, found):
+    for item, (web, extra, errs) in zip(items, found):
         query = item["query"]
         errors.extend(errs)
         searched.append(query)
-        if not results:
+        if not web and not extra:
             events.append(f"[Athena] No results for {query!r}; continuing.")
             continue
 
         added = 0
-        # Original research and official publications are read first; the search order breaks ties.
-        for r in sorted(results, key=lambda r: source_kind(r["url"]) != "primary"):
-            if added >= config.PAGES_PER_QUERY:
-                break
-            key = _norm_url(r["url"])
-            if key in seen:
-                continue
-            seen.add(key)
-            finding = {
-                "id": "",  # numbered after duplicates are removed (step 3)
-                "section": item["section"],
-                "query": query,
-                "title": r.get("title", ""),
-                "url": r["url"],
-                "snippet": r.get("snippet", ""),
-                "content": "",
-                "extracted_by": "",
-                "kind": source_kind(r["url"]),
-                "published": published_iso(r.get("published", "")),  # the page's own date, "" = unknown
-                "retrieved_at": int(time.time()),                      # the research date: when Apollo read it
-            }
-            new.append((finding, r.get("raw_content", "")))
-            added += 1
-        events.append(f"[Athena] {query!r}: {len(results)} results, {added} new sources")
+        for results, limit in ((web, config.PAGES_PER_QUERY), (extra, config.DOMAIN_PAGES_PER_QUERY)):
+            taken = 0
+            # Original research and official publications are read first; the search order breaks ties.
+            for r in sorted(results, key=lambda r: source_kind(r["url"]) != "primary"):
+                if taken >= limit:
+                    break
+                key = _norm_url(r["url"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                finding = {
+                    "id": "",  # numbered after duplicates are removed (step 3)
+                    "section": item["section"],
+                    "query": query,
+                    "title": r.get("title", ""),
+                    "url": r["url"],
+                    "snippet": r.get("snippet", ""),
+                    "content": "",
+                    "extracted_by": "",
+                    "kind": source_kind(r["url"]),
+                    "published": published_iso(r.get("published", "")),  # the page's own date, "" = unknown
+                    # the research date: when the result was retrieved (for a cached result, when it was cached)
+                    "retrieved_at": int(r.get("retrieved_at") or time.time()),
+                    "source_api": r.get("source", ""),
+                    "freshness": r.get("freshness", "live"),  # "live" | "cached" | "stale"
+                }
+                new.append((finding, r.get("raw_content", ""), bool(r.get("api_text"))))
+                taken += 1
+            added += taken
+        events.append(f"[Athena] {query!r}: {len(web) + len(extra)} results, {added} new sources")
 
     # Step 2 (parallel): extract page text and the page's stated publication date.
     def _extract(entry):
-        finding, raw = entry
+        finding, raw, from_api = entry
         errs: list[str] = []
-        finding["content"], finding["extracted_by"] = page_content(finding["url"], raw, errs)
+        text = api_content(raw) if from_api else ""
+        if text:  # the API's own text (an abstract): no landing-page download
+            finding["content"], finding["extracted_by"] = text, f"{finding['source_api']}_text"
+        else:
+            finding["content"], finding["extracted_by"] = page_content(finding["url"], raw, errs)
         finding["published"] = finding["published"] or page_date(finding["url"])
         return errs
 
@@ -374,7 +390,7 @@ def athena_search(state: ResearchState) -> dict:
     # order. Ids are given only now, so the numbering has no gaps.
     duplicates, irrelevant = list(state.get("duplicates", [])), list(state.get("irrelevant", []))
     kept: list[dict] = []
-    for f, _ in new:
+    for f, _, _ in new:
         text = f["content"] or f["snippet"]
         score = relevance(text, state["plan"][f["section"]]) if f["section"] < len(state["plan"]) else 1.0
         if text and score < config.MIN_RELEVANCE:
@@ -594,6 +610,8 @@ WRITE_SYSTEM = (
     "- If sources disagree, say so in one sentence and cite each side; never pick one side silently.\n"
     "- A source marked (video transcript) records what the user's video says, not whether it is true: "
     "attribute it (\"The video says ...\") and use the other sources to judge it.\n"
+    "- A source marked (stale cached result ...) was retrieved earlier because live search failed: when you "
+    "use it, say the information may be out of date.\n"
     f"- If the sources do not support a point the sub-question asks about, write a sentence saying it was "
     f"\"{NOT_FOUND}\" (with no citation).\n"
     "Reply with the paragraph only."
@@ -609,6 +627,10 @@ def _source_block(findings: list[dict], question: str, errors: list[str]) -> str
         text = relevant_passages(f["content"] or f["snippet"], question, config.WRITE_CHARS_PER_SOURCE, errors)
         mark = {"primary": " (original research or official)", "video": " (video transcript)",
                 "document": " (document the user attached)"}.get(f.get("kind"), "")
+        if f.get("freshness") in ("cached", "stale"):
+            when = time.strftime("%Y-%m-%d", time.gmtime(f.get("retrieved_at") or 0))
+            mark += (f" (stale cached result from {when}, may be out of date)" if f["freshness"] == "stale"
+                     else f" (cached result from {when})")
         parts.append(f"[{f['id']}]{mark} {f['title']}\n{text}")
     return "\n\n".join(parts)
 

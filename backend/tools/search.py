@@ -6,9 +6,9 @@ used by tools/extract.py as a fallback when our own extraction fails. Serper
 does not provide it, so it is "" there.
 Each provider call is retried with tenacity (SEARCH_MAX_RETRIES retries,
 exponential backoff, transient errors only; see tools/retry_policy.py).
-If Tavily fails or returns nothing, Serper is tried.
-If both fail or return nothing, the function returns [] and appends a message
-to `errors` — it never raises, so one bad query cannot crash the pipeline.
+If Tavily fails or returns nothing relevant, Serper is tried; if both fail, the last
+cached answer for the same query (marked cached or stale); else the function returns []
+and appends a message to `errors` — it never raises, so one bad query cannot crash the pipeline.
 """
 
 import requests
@@ -63,18 +63,8 @@ def _serper(query: str) -> list[dict]:
 
 
 def search(query: str, errors: list[str]) -> list[dict]:
-    """Run one web search. Never raises; failures are appended to `errors`."""
-    providers = [("tavily", _tavily, config.TAVILY_API_KEY), ("serper", _serper, config.SERPER_API_KEY)]
-    for name, fn, key in providers:
-        if not key:
-            errors.append(f"search[{name}] skipped for {query!r}: API key not set")
-            continue
-        try:
-            results = fn(query)
-        except Exception as exc:  # network, auth, rate limit, bad JSON...
-            errors.append(f"search[{name}] failed for {query!r}: {type(exc).__name__}: {str(exc)[:200]}")
-            continue
-        if results:
-            return results
-        errors.append(f"search[{name}] returned no results for {query!r}")
-    return []
+    """Run one web search (the "general" domain of tools/sources/router.py: Tavily, Serper, then the cache).
+    Never raises; failures are appended to `errors`."""
+    from tools.sources.router import search_domain  # imported here: the router's adapters import this module
+
+    return search_domain("general", query, errors)

@@ -25,7 +25,7 @@ import time
 import requests
 import trafilatura
 
-from core import config
+from core import config, replay
 from tools.quality import published_date
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ApolloResearchBot/0.1)"}
@@ -43,6 +43,8 @@ def page_date(url: str) -> str:
 
     Uses the page downloaded by extract_text() when there was one; otherwise, if FETCH_PUBLISH_DATES,
     reads only the first HEAD_BYTES of the page (no text extraction). Never raises, never guesses."""
+    if replay.active():
+        return ""
     if url in _dates:
         return _dates.pop(url)
     if not config.FETCH_PUBLISH_DATES:
@@ -103,9 +105,17 @@ def _clean_raw(raw_content: str) -> str:
     return "\n".join(kept)
 
 
+def api_content(raw_content: str) -> str:
+    """Text a source API returned itself (an abstract), cleaned and capped; "" when too short to use."""
+    raw = _clean_raw(raw_content)
+    return raw[: config.EXTRACT_MAX_CHARS] if len(raw) >= config.MIN_CONTENT_CHARS else ""
+
+
 def page_content(url: str, raw_content: str, errors: list[str]) -> tuple[str, str]:
     """Return (text, extracted_by) from our extractor and the search provider's text, in EXTRACT_ORDER."""
     raw = _clean_raw(raw_content)
+    if replay.active():  # no page is downloaded in replay mode
+        return (raw[: config.EXTRACT_MAX_CHARS], "replay") if raw else ("", "")
     if config.EXTRACT_ORDER == "provider_first" and len(raw) >= config.MIN_CONTENT_CHARS:
         return raw[: config.EXTRACT_MAX_CHARS], "tavily_raw"  # no download or HTML parsing (slow CPUs)
     own_errors: list[str] = []

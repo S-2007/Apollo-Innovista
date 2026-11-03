@@ -254,6 +254,12 @@ def limits_section(state: dict, checks: list[dict]) -> str:
         mark = {"pass": "Passed", "warn": "Warning", "fail": "Failed"}[c["status"]]
         lines.append(f"- {mark}: {c['label']}. {c['detail']}")
     by_id = {f["id"]: f for f in state["findings"]}
+    for freshness, words in (("stale", "stale cached results (past their freshness period; may be out of date)"),
+                             ("cached", "cached results")):
+        ids = [f["id"] for f in state["findings"] if f.get("freshness") == freshness]
+        if ids:
+            lines.append(f"- Note: live search failed for some queries, so {', '.join(ids)} came from {words}, "
+                         "not from a live search.")
     if state["contradictions"]:
         lines += ["", "Conflicting evidence:"]
         for x in state["contradictions"]:

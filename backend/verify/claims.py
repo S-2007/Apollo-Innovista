@@ -38,7 +38,7 @@ import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
-from core import config, live
+from core import config, live, replay
 from core.llm import chat as llm_chat
 from tools.embed import embed
 from tools.jsonparse import parse_json
@@ -75,6 +75,8 @@ PASSAGE_CONTEXT = 1  # neighbouring sentences kept on each side of a passage (fo
 
 
 def _available_chain() -> list[tuple[str, str]]:
+    if replay.active():  # core.llm.chat answers from core/replay.py; no key is needed
+        return [("replay", "replay")]
     keys = {"groq": config.GROQ_API_KEY, "gemini": config.GEMINI_API_KEY}
     return [(p, m) for p, m in dict.fromkeys(config.VERIFY_CHAIN) if keys.get(p)]
 

@@ -18,7 +18,7 @@ reasoning tokens count against Groq's token limits.
 import time
 from typing import Callable
 
-from core import config, metering
+from core import config, metering, replay
 from tools.retry_policy import ConfigError, is_quota_exhausted, with_retries
 
 _clients: dict[str, object] = {}
@@ -91,6 +91,8 @@ def chat(
 
     on_text (optional) streams the reply: it is called with the text so far as it arrives. If a model
     fails and the next one takes over, the text restarts from that model's first chunk."""
+    if replay.active():  # LLM_MODE=replay: a fixed offline reply, no provider is called
+        return replay.chat(system, user, on_text)
     if provider or model:
         provider = provider or config.LLM_PROVIDER
         return _chat_one(provider, model or (config.GROQ_MODEL if provider == "groq" else config.GEMINI_MODEL), system, user, temperature, on_text)
@@ -142,6 +144,8 @@ TRANSCRIBE_PROMPT = (
 def transcribe_video(url: str) -> str:
     """Gemini watches a public YouTube video by URL and returns "[mm:ss] sentence" lines (tools/video.py).
     Low media resolution: the words are what matters, and it keeps a 15-minute video near 50k tokens."""
+    if replay.active():
+        raise ConfigError("replay mode does not transcribe videos")
     from google.genai import types
 
     name, started = config.VIDEO_GEMINI_MODEL, time.monotonic()

@@ -816,3 +816,22 @@ page as a scan); in the browser, a 3-page test PDF (labelled inside as a test do
 completed: the PDF was S1 and cited, 10 claims cited it (7 verified, 3 partial) with page numbers on their
 passages, 13 web sources were added, and the report kept the document's own caveats (not randomised, small groups).
 **Not checked:** real-world PDFs with complex layouts (columns, tables); text extraction quality depends on pypdf.
+
+## Phase 3.25: specialist source APIs with primary -> fallback -> cache -> graceful error (2026-11-03)
+
+**Built:** `backend/tools/sources/` — `router.py` (domains, keyword routing `classify`, `fetch`: primary, then
+fallback, then cache, then a graceful error; common result shape; one log line per fetch with ids and statuses
+only), `adapters.py` (OpenAlex, Semantic Scholar, PubMed, Europe PMC; Tavily and Serper reused from
+`tools/search.py`), `cache.py` (SQLite, one connection per call, WAL, busy timeout, short transactions; TTL per
+domain; expired entries kept and marked stale). `core/replay.py`: `LLM_MODE=replay` answers every search, source
+API, LLM, page, date, embedding and video call offline (scenarios ok / primary_down / all_down). General web search
+now goes through the same router (Tavily -> Serper -> cache). Athena adds up to `DOMAIN_PAGES_PER_QUERY` specialist
+results per query on top of the web results and uses the API's abstract as the page text. Cached and stale sources
+are marked for the writer, and the report's limits section names them. Relevance uses the existing
+`quality.relevance` and `MIN_RELEVANCE` (now configurable), with per-domain overrides; a result with too little
+text to judge is kept for Athena's later full-page check, as before.
+**Checked:** `pytest` 201 passed (28 new in `test_sources.py`, network blocked at socket level in that file; a
+replay-mode run made zero connection attempts). Live, once: OpenAlex, PubMed and Europe PMC each returned 5 results
+with abstracts for "walking blood pressure randomized trial"; Semantic Scholar answered 429 without a key.
+**Not done:** statistics, news and tech domains (World Bank, IMF, GDELT, GitHub, Stack Exchange) and Brave;
+routing is keyword rules, not semantic; the UI does not badge cached or stale sources (the report text does).

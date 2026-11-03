@@ -375,6 +375,11 @@ const TEXT_FROM: Record<string, string> = {
   pdf_text: 'The PDF’s own text layer, page by page',
   plain_text: 'The text file as written',
   gemini_transcript: 'A Gemini transcription of the video (it had no usable captions): model output, not captions',
+  openalex_text: 'The abstract, as OpenAlex returned it',
+  semantic_scholar_text: 'The abstract, as Semantic Scholar returned it',
+  pubmed_text: 'The abstract, as PubMed returned it',
+  europe_pmc_text: 'The abstract, as Europe PMC returned it',
+  replay: 'Replay fixture: fixed offline test text, not a real source',
 }
 
 /** 75 -> "01:15", 3725 -> "1:02:05" (same format as the transcript's own stamps). */

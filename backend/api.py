@@ -477,6 +477,21 @@ def _metered_search(query: str, errors: list[str]) -> list[dict]:
 
 
 nodes.web_search = _metered_search
+
+_real_domain_search = nodes.domain_search
+
+
+def _metered_domain_search(domain: str, query: str, errors: list[str]) -> list[dict]:
+    """A specialist domain's search (tools/sources/router.py), recorded in the usage meter like a web search."""
+    before, started = len(errors), time.monotonic()
+    results = _real_domain_search(domain, query, errors)
+    new_errors = [e for e in errors[before:] if e.startswith("search[")]
+    metering.record("search", bool(results) or not new_errors, time.monotonic() - started, domain=domain,
+                    query=query, results=len(results), error=new_errors[-1][:200] if new_errors else "")
+    return results
+
+
+nodes.domain_search = _metered_domain_search
 _load_saved()
 
 

@@ -24,7 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
-from core import config
+from core import config, replay
 
 _model = None
 _worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="embed")
@@ -81,6 +81,8 @@ def warm_up() -> None:
     """Load the model in the background (no-op once loaded). Called when a run starts, so the
     2.9 CPU-seconds of loading (about 30 s on Render's 0.1 CPU) overlap planning and search, which
     mostly wait on the network, instead of delaying claim verification."""
+    if replay.active():  # replay never loads (or downloads) the model
+        return
     _worker.submit(_encode, ["warm up"])
 
 
@@ -90,6 +92,8 @@ def clear_cache() -> None:
 
 
 def embed(texts: list[str]):
+    if replay.active():
+        return replay.embed(texts)
     with _cache_lock:
         have = {t: _vectors[t] for t in texts if t in _vectors}
     missing = [t for t in dict.fromkeys(texts) if t not in have]

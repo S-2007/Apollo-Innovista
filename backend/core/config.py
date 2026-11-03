@@ -24,6 +24,25 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+def _float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, default))
+    except ValueError:
+        return default
+
+
+def _per_domain(name: str, defaults: dict[str, float]) -> dict[str, float]:
+    """`defaults`, overridden by "domain:value,domain:value" in the env variable `name` (bad items ignored)."""
+    out = dict(defaults)
+    for item in os.getenv(name, "").split(","):
+        domain, _, value = item.partition(":")
+        try:
+            out[domain.strip().lower()] = float(value)
+        except ValueError:
+            continue
+    return out
+
+
 # --- API keys (empty string means "not configured") ---
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
@@ -109,9 +128,36 @@ MIN_SOURCES_PER_QUESTION = _int("MIN_SOURCES_PER_QUESTION", 2)  # readable sourc
 # Share of word 5-grams two pages must have in common to count as the same article. Different articles share
 # almost none; one paper on two URLs shared 71% (one copy also carried a cookie banner), so 0.8 missed it.
 DUPLICATE_OVERLAP = 0.5
-MIN_RELEVANCE = 0.3       # share of the sub-question's key words a page must contain (tools/quality.relevance)
+MIN_RELEVANCE = _float("MIN_RELEVANCE", 0.3)  # share (0-1) of the sub-question's key words a page must contain (tools/quality.relevance)
 # Read each page's stated publication date from its <head> when the page itself was not downloaded.
 FETCH_PUBLISH_DATES = os.getenv("FETCH_PUBLISH_DATES", "true").strip().lower() == "true"
+
+# --- Source APIs per domain (tools/sources/) ---
+# Domains whose specialist APIs Athena queries IN ADDITION to the general web search, when a sub-question's
+# words route it there (tools/sources/router.classify). "general" (Tavily, then Serper) always runs.
+DOMAIN_SOURCES = tuple(d.strip().lower() for d in os.getenv("DOMAIN_SOURCES", "academic,health").split(",") if d.strip())
+DOMAIN_PAGES_PER_QUERY = _int("DOMAIN_PAGES_PER_QUERY", 2)  # specialist results kept per query, on top of PAGES_PER_QUERY
+# Results below this relevance (same 0-1 scale and scorer as MIN_RELEVANCE) do not count as a usable answer
+# from an API: the fallback is tried. Override per domain with DOMAIN_RELEVANCE="academic:0.4,health:0.3".
+DOMAIN_RELEVANCE = _per_domain("DOMAIN_RELEVANCE", {d: MIN_RELEVANCE for d in
+                                                    ("academic", "statistics", "health", "news", "tech", "general")})
+# How long a cached API result counts as fresh, in days; override with SOURCE_CACHE_TTL_DAYS="news:0.5,tech:7".
+# An expired entry is kept, marked stale, and used only when both live APIs fail.
+SOURCE_CACHE_TTL_DAYS = _per_domain("SOURCE_CACHE_TTL_DAYS", {"academic": 30, "statistics": 7, "health": 7,
+                                                              "news": 1, "tech": 3, "general": 2})
+SOURCE_CACHE_ENABLED = os.getenv("SOURCE_CACHE_ENABLED", "true").strip().lower() == "true"
+SOURCE_CACHE_BUSY_SECONDS = _float("SOURCE_CACHE_BUSY_SECONDS", 5.0)  # SQLite waits this long for a lock
+# Optional: polite-pool e-mail for OpenAlex, and keys that raise the free rate limits. None is required.
+OPENALEX_MAILTO = os.getenv("OPENALEX_MAILTO", "")
+SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
+NCBI_API_KEY = os.getenv("NCBI_API_KEY", "")
+
+# --- Replay mode (core/replay.py) ---
+# "live" (default) or "replay": fixed offline answers for every search, source API, LLM, page and embedding
+# call, so tests and demos make no network calls and need no keys. Never switched on automatically.
+LLM_MODE = os.getenv("LLM_MODE", "live").strip().lower()
+# In replay mode: "ok" (primary APIs answer), "primary_down" (fallbacks answer), "all_down" (cache or error).
+REPLAY_SCENARIO = os.getenv("REPLAY_SCENARIO", "ok").strip().lower()
 
 # --- YouTube links (tools/video.py) ---
 VIDEO_LANGUAGES = ["en", "en-US", "en-GB", "hi"]  # caption languages tried first, in order
@@ -148,6 +194,7 @@ VERIFY_TOP_K = 5               # passages per cited source shown to the verifier
 VERIFY_MAX_CLAIMS = 40          # cap on LLM verification calls per report; the rest are "unchecked"
 VERIFY_WORKERS = _int("VERIFY_WORKERS", 4)  # claims checked at the same time (each mostly waits for the LLM)
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", str(ROOT / "output"))
+SOURCE_CACHE_DB = os.getenv("SOURCE_CACHE_DB", os.path.join(OUTPUT_DIR, "source_cache.db"))
 
 # --- Accounts (web app login) ---
 # JWT_SECRET signs session tokens. Set it in .env (any long random string); if it is missing, a random

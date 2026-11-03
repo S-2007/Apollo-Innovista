@@ -22,7 +22,7 @@ import re
 
 import requests
 
-from core import config
+from core import config, replay
 
 _ID = r"([A-Za-z0-9_-]{11})"
 YOUTUBE_URL = re.compile(
@@ -167,6 +167,8 @@ def read_video(topic: str, errors: list[str]) -> dict | None:
     found = find_video(topic)
     if not found:
         return None
+    if replay.active():
+        raise VideoUnreadable("replay mode (LLM_MODE=replay) does not read videos")
     video_id, link = found
     meta = metadata(video_id, errors)
     reasons: list[str] = []
