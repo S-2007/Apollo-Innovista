@@ -65,7 +65,7 @@ function Sidebar({ page, onNavigate }: { page: PageKey; onNavigate: () => void }
         </div>
       </div>
       <p className="label px-5 pb-1 pt-4">System</p>
-      <ul className="min-h-0 flex-1 overflow-y-auto pb-3">
+      <ul className="nav-list min-h-0 flex-1 overflow-y-auto pb-3">
         {PAGES.map((p, i) => {
           const active = page === p.key || (page === 'live' && p.key === 'new')
           return (

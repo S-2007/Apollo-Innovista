@@ -298,12 +298,19 @@ body {
   border: 1.5px solid transparent;
 }
 
+/* No translate: the links sit in a scrolling list (overflow-y: auto, which also clips horizontally), and a
+   -1px lift pushed the FIRST item's top border outside it, so Dashboard showed a cut top edge. The card stays
+   inside the list; .nav-list's top padding and the links' side margin leave room for the border and shadow. */
 .nav-active-card {
   background: #d5f8f1;
   border-color: #10203b;
   box-shadow: 3px 3px 0 #10203b;
   color: #10203b;
-  transform: translate(-1px, -1px);
+  z-index: 1; /* its shadow paints over the next link's hover background */
+}
+
+.nav-list {
+  padding-top: 4px;
 }
 
 /* the page number and icon go navy too; the live-runs badge (it has an aria-label) keeps its white text */
@@ -383,7 +390,6 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nav-active-card,
   .depth-card-selected,
   .neo-button-primary:active:not(:disabled) {
     transform: none;
