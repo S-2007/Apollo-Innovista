@@ -18,6 +18,7 @@ import Cost from './pages/Cost'
 import Verification from './pages/Verification'
 import Reports from './pages/Reports'
 import LiveReport from './pages/LiveReport'
+import ResearchMiniGame from './components/ResearchMiniGame'
 
 const VIEW: Record<PageKey, () => JSX.Element> = {
   dashboard: Dashboard, new: NewResearch, analytics: Analytics,
@@ -141,6 +142,9 @@ function TopBar({ page, onMenu }: { page: PageKey; onMenu: () => void }) {
 function Shell() {
   const page = useRoute()
   const [menu, setMenu] = useState(false)
+  const { busy, runId } = useStore()
+  const [dismissedGameRun, setDismissedGameRun] = useState<string | null>(null)
+  const showResearchGame = busy && !!runId && dismissedGameRun !== runId
   const View = VIEW[page]
   useEffect(() => {
     if (!menu) return
@@ -171,6 +175,7 @@ function Shell() {
           </div>
         </main>
       </div>
+      {showResearchGame && <ResearchMiniGame onClose={() => setDismissedGameRun(runId)} />}
     </div>
   )
 }

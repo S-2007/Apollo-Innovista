@@ -297,3 +297,234 @@ body {
     box-shadow: none;
   }
 }
+/* Apollo Flight: the waiting mini-game (components/ResearchMiniGame.tsx), shown while a run is busy. */
+.research-game {
+  background: var(--color-surface);
+  border: 2px solid var(--color-ink);
+  bottom: 20px;
+  box-shadow: 7px 7px 0 var(--color-ink);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  position: fixed;
+  right: 20px;
+  width: 356px;
+  z-index: 60;
+}
+
+.research-game-header {
+  align-items: center;
+  background: var(--color-accent);
+  border-bottom: 1.5px solid var(--color-ink);
+  display: flex;
+  justify-content: space-between;
+  padding: 11px 13px;
+}
+
+.research-game-header h2 {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  margin-top: 3px;
+}
+
+.research-game-header p {
+  color: var(--color-muted);
+  font-size: 9px;
+  margin-top: 3px;
+}
+
+.research-game-window-actions {
+  display: flex;
+  gap: 5px;
+}
+
+.research-game-window-actions button {
+  align-items: center;
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-ink);
+  display: flex;
+  font-family: var(--font-mono);
+  height: 27px;
+  justify-content: center;
+  width: 29px;
+}
+
+.research-game-status {
+  border-bottom: 1.5px solid var(--color-ink);
+  padding: 10px 13px;
+}
+
+.research-game-status > div:first-child {
+  align-items: center;
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  justify-content: space-between;
+  text-transform: uppercase;
+}
+
+.research-game-status span {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+}
+
+.research-game-live-dot {
+  background: var(--color-ok);
+  border-radius: 50%;
+  display: inline-block;
+  height: 7px;
+  width: 7px;
+}
+
+.research-game-progress {
+  background: #d8e5ea;
+  border: 1px solid var(--color-ink);
+  height: 8px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.research-game-progress i {
+  background: var(--color-accent);
+  display: block;
+  height: 100%;
+  transition: width .45s ease;
+}
+
+.research-game-status p {
+  color: var(--color-muted);
+  font-size: 9px;
+  margin-top: 6px;
+}
+
+.research-game-canvas {
+  background: transparent;
+  border: 0;
+  display: block;
+  padding: 12px 16px 0;
+  width: 100%;
+}
+
+.research-game-canvas canvas {
+  border: 1.5px solid var(--color-ink);
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+.research-game-footer {
+  align-items: stretch;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 62px 62px 1fr;
+  padding: 10px 16px;
+}
+
+.research-game-footer > div {
+  border: 1.5px solid var(--color-ink);
+  padding: 6px 7px;
+}
+
+.research-game-footer span {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 7px;
+  text-transform: uppercase;
+}
+
+.research-game-footer strong {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  margin-top: 2px;
+}
+
+.research-game-progress-link {
+  align-items: center;
+  background: var(--color-ink);
+  border: 0;
+  color: var(--color-surface);
+  display: flex;
+  font-size: 10px;
+  justify-content: center;
+  padding: 10px;
+  width: 100%;
+}
+
+.research-game-progress-link:hover {
+  color: var(--color-accent);
+}
+
+.research-game-minimized {
+  align-items: center;
+  background: var(--color-accent);
+  border: 2px solid var(--color-ink);
+  bottom: 20px;
+  box-shadow: 4px 4px 0 var(--color-ink);
+  display: flex;
+  font-size: 11px;
+  gap: 8px;
+  padding: 11px 13px;
+  position: fixed;
+  right: 20px;
+  z-index: 60;
+}
+
+.research-game-minimized b {
+  border-left: 1px solid var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  margin-left: 4px;
+  padding-left: 10px;
+}
+
+/* Ensure selected controls and enabled primary actions use the intended mint. */
+.neo-sidebar a[aria-current='page'],
+.neo-panel label:has(input[type='radio']:checked) {
+  background: #d5f8f1 !important;
+}
+
+.neo-button-primary:not(:disabled) {
+  background: #d5f8f1 !important;
+}
+
+.neo-button-primary:hover:not(:disabled) {
+  background: #baf3e8 !important;
+}
+
+/* Disabled actions remain neutral so readiness is still clear. */
+.neo-button-primary:disabled {
+  background: var(--color-surface-2) !important;
+  box-shadow: none;
+}
+
+@media (max-width: 640px) {
+  .research-game {
+    bottom: 0;
+    box-shadow: 0 -5px 0 var(--color-ink);
+    left: 0;
+    max-height: 92vh;
+    right: 0;
+    width: 100%;
+  }
+
+  .research-game-canvas {
+    margin-inline: auto;
+    max-width: 360px;
+  }
+
+  .research-game-minimized {
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    width: calc(100% - 24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .research-game-progress i {
+    transition: none;
+  }
+}
