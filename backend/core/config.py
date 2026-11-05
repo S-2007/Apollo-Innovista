@@ -171,6 +171,10 @@ VIDEO_PLAN_CHARS = 6000     # transcript lines, spread over the whole video, sho
 # No captions, or YouTube blocks the server: let Gemini watch the video by URL and transcribe it.
 VIDEO_GEMINI_FALLBACK = os.getenv("VIDEO_GEMINI_FALLBACK", "true").strip().lower() == "true"
 VIDEO_GEMINI_MODEL = os.getenv("VIDEO_GEMINI_MODEL", GEMINI_MODEL)
+# Tried in order until one gives a timestamped transcript: a model sometimes answers with no text, or is
+# overloaded (503). Measured 2026-11-05 on a 14-minute talk: 21 s (flash-lite), ~47 s (the other two).
+VIDEO_GEMINI_MODELS = list(dict.fromkeys(m.strip() for m in os.getenv(
+    "VIDEO_GEMINI_MODELS", f"{VIDEO_GEMINI_MODEL},{GEMINI_FALLBACK_MODEL},gemini-3.5-flash").split(",") if m.strip()))
 VIDEO_TIMEOUT_SECONDS = _int("VIDEO_TIMEOUT_SECONDS", 180)
 
 # --- Attached documents (tools/documents.py) ---

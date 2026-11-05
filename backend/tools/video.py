@@ -184,14 +184,20 @@ def read_video(topic: str, errors: list[str]) -> dict | None:
         else:
             from core.llm import transcribe_video
 
-            try:
-                raw = transcribe_video(watch_url(video_id))
+            # A model sometimes answers with no text, or is overloaded: try the next one before giving up.
+            for model in config.VIDEO_GEMINI_MODELS:
+                try:
+                    raw = transcribe_video(watch_url(video_id), model)
+                except Exception as exc:
+                    reasons.append(f"Gemini {model} could not watch the video: {type(exc).__name__}: {str(exc)[:200]}")
+                    continue
                 lines = parse_transcript(raw)
-                if not lines:
-                    reasons.append("Gemini found no speech in the video" if "NO_SPEECH" in raw else
-                                   f"Gemini's transcript had no timestamped lines: {raw[:120]!r}")
-            except Exception as exc:
-                reasons.append(f"Gemini could not watch the video: {type(exc).__name__}: {str(exc)[:200]}")
+                if lines:
+                    break
+                if "NO_SPEECH" in raw:
+                    reasons.append(f"Gemini {model} found no speech in the video")
+                    break  # a video without speech stays without speech on another model
+                reasons.append(f"Gemini {model}'s transcript had no timestamped lines: {raw[:120]!r}")
 
     content, seconds, truncated = transcript_text(lines)
     if len(content) < config.MIN_CONTENT_CHARS:

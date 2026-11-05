@@ -141,14 +141,15 @@ TRANSCRIBE_PROMPT = (
 
 
 @with_retries(config.LLM_MAX_RETRIES)
-def transcribe_video(url: str) -> str:
+def transcribe_video(url: str, model: str | None = None) -> str:
     """Gemini watches a public YouTube video by URL and returns "[mm:ss] sentence" lines (tools/video.py).
-    Low media resolution: the words are what matters, and it keeps a 15-minute video near 50k tokens."""
+    Low media resolution: the words are what matters, and it keeps a 15-minute video near 50k tokens.
+    A reply with no text returns "" (tools/video.py then tries the next model in VIDEO_GEMINI_MODELS)."""
     if replay.active():
         raise ConfigError("replay mode does not transcribe videos")
     from google.genai import types
 
-    name, started = config.VIDEO_GEMINI_MODEL, time.monotonic()
+    name, started = model or config.VIDEO_GEMINI_MODEL, time.monotonic()
     try:
         resp = _get_client("gemini").models.generate_content(
             model=name,

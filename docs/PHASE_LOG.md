@@ -876,3 +876,14 @@ ADAPTERS but is unused (it answered 429 to most requests). Security fix: a faile
 and some APIs take their key in the URL (Guardian api-key, NCBI api_key, Stack Exchange key, OpenAlex/Crossref
 mailto); `router.redact` now removes those values before a message reaches `errors` (UI and saved runs).
 `pytest` 212 passed.
+
+## Phase 3.30: YouTube links failed when captions were blocked (2026-11-05)
+
+**Found live:** YouTube now refuses caption requests from this connection (`IpBlocked`), and the Gemini fallback
+returned one empty reply, after which the run stopped with `video_unreadable`. Asked again, the same model
+transcribed the 14-minute test talk in 21 s; `gemini-3-flash-preview` answered 503 at the time.
+**Fix:** `VIDEO_GEMINI_MODELS` (default: VIDEO_GEMINI_MODEL, GEMINI_FALLBACK_MODEL, gemini-3.5-flash) are tried in
+order until one gives a timestamped transcript; "NO_SPEECH" stops at once.
+**Checked live:** the TED talk link with captions blocked: Gemini transcript (13,778 chars), report "Fact check:
+Inside the Mind of a Master Procrastinator", 18 sources, 13 claims (4 verified, 8 partial, 1 contradicted,
+0 unchecked), 451 s; OpenAlex 429s and Groq rate limits took most of that time. `pytest` 213 passed.

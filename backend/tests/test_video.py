@@ -112,21 +112,45 @@ def test_read_video_falls_back_to_gemini_when_captions_fail(monkeypatch, meta):
     monkeypatch.setattr(video, "captions", blocked)
     monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
     said = "\n".join(f"[00:{i:02d}] Spoken sentence number {i} about fasting and health." for i in range(10))
-    monkeypatch.setattr(llm, "transcribe_video", lambda url: said)
+    monkeypatch.setattr(llm, "transcribe_video", lambda url, model=None: said)
     errors = []
     v = video.read_video(LINK, errors)
     assert v["extracted_by"] == "gemini_transcript" and "[00:09] Spoken sentence number 9" in v["content"]
     assert any("RequestBlocked" in e for e in errors)  # the blocked captions are still reported
 
 
+def test_an_empty_or_overloaded_gemini_model_hands_the_video_to_the_next(monkeypatch, meta):
+    """Seen live: a model answered with no text, another with 503; the next model transcribed the video."""
+    monkeypatch.setattr(video, "captions", lambda vid, errors: ([], ""))
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(config, "VIDEO_GEMINI_MODELS", ["empty-model", "busy-model", "good-model"])
+    said = "\n".join(f"[00:{i:02d}] Spoken sentence number {i} about fasting and health." for i in range(10))
+    tried = []
+
+    def transcribe(url, model=None):
+        tried.append(model)
+        if model == "busy-model":
+            raise RuntimeError("503 UNAVAILABLE")
+        return "" if model == "empty-model" else said
+
+    monkeypatch.setattr(llm, "transcribe_video", transcribe)
+    errors = []
+    v = video.read_video(LINK, errors)
+    assert tried == ["empty-model", "busy-model", "good-model"] and v["extracted_by"] == "gemini_transcript"
+    assert any("empty-model's transcript had no timestamped lines" in e for e in errors)
+    assert any("busy-model could not watch" in e for e in errors)
+
+
 def test_unreadable_video_stops_with_the_reasons_and_never_guesses(monkeypatch, meta):
     monkeypatch.setattr(video, "captions", lambda vid, errors: ([], ""))
     monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
-    monkeypatch.setattr(llm, "transcribe_video", lambda url: "NO_SPEECH")
+    tried = []
+    monkeypatch.setattr(llm, "transcribe_video", lambda url, model=None: tried.append(model) or "NO_SPEECH")
     with pytest.raises(video.VideoUnreadable) as exc:
         video.read_video(LINK, [])
     assert '"Fasting facts"' in str(exc.value) and "does not guess" in str(exc.value)
     assert "no speech" in str(exc.value)
+    assert len(tried) == 1  # no speech is not a model failure: the other models are not asked
 
 
 def test_unreadable_without_gemini_key_says_so(monkeypatch, meta):
