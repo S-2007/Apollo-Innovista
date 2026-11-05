@@ -155,15 +155,29 @@ def pubmed_terms(query: str) -> list[str]:
     return list(dict.fromkeys(w for w in _WORD.findall(query.lower()) if w in keep)) or [query]
 
 
-@_retry
+PUBMED_TIMEOUT_SECONDS = 10
+
+
+class PubMedBackendError(Exception):
+    """PubMed answered 200 but its search backend failed: treated like a 502 (retried once, then the fallback)."""
+
+    status_code = 502
+
+
+# One retry and a 10 s timeout (not the usual 2 retries, 15 s): measured 2026-11-05, PubMed's search answered 500
+# to most requests for a while, and full retries cost 15-25 s per query before Europe PMC took over.
+@with_retries(1)
 def pubmed(query: str) -> list[dict]:
     """PubMed requires every term in a record, so a whole question finds nothing. Its key words are ANDed;
     when that finds nothing, words are dropped from the front (a question's topic usually comes last)."""
     key = {"api_key": config.NCBI_API_KEY} if config.NCBI_API_KEY else {}
     terms, ids = pubmed_terms(query), []
     while not ids:
-        ids = _get(f"{EUTILS}/esearch.fcgi", db="pubmed", term=" ".join(terms), sort="relevance",
-                   retmax=config.RESULTS_PER_QUERY, retmode="json", **key).json().get("esearchresult", {}).get("idlist", [])
+        found = _get(f"{EUTILS}/esearch.fcgi", timeout=PUBMED_TIMEOUT_SECONDS, db="pubmed", term=" ".join(terms),
+                     sort="relevance", retmax=config.RESULTS_PER_QUERY, retmode="json", **key).json().get("esearchresult", {})
+        if "ERROR" in found:  # seen live: HTTP 200 with "Search Backend failed": an outage, not "no papers"
+            raise PubMedBackendError(f"PubMed search backend failed: {str(found['ERROR'])[:120]}")
+        ids = found.get("idlist", [])
         if ids or len(terms) <= PUBMED_MIN_TERMS:
             break
         terms = terms[1:]

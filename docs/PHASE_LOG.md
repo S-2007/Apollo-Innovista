@@ -897,3 +897,16 @@ load"; the 429 asks to wait ~34 s, which the retry policy honoured, adding minut
 one attempt with no retries, so a 429 goes straight to Crossref. `pytest` 214 passed.
 **Checked live with the team's key:** /rate-limit reports a $1/day budget (search costs $0.001); the long questions
 that got 429 without a key returned from OpenAlex in 1.7-4.3 s through the router; no error message carried the key.
+
+## Phase 3.32: keyless APIs checked live, one at a time and five at once (2026-11-05)
+
+Crossref, Europe PMC, World Bank and IMF: 5/5 at once, slowest 2.9-12.4 s; YouTube oEmbed and captions worked.
+PubMed's search (esearch) answered 500 to most requests (4 of 6 plain curl requests), while its other endpoints
+answered: an NCBI-side fault, not our request. Health fell back to Europe PMC, but PubMed's two retries at 15 s
+cost 15-25 s per query first, so PubMed now gets one retry and a 10 s timeout. `pytest` 214 passed.
+**NCBI key checked (same day):** PubMed accepts it (X-RateLimit-Limit 10 with the key, 3 for an invalid one, which
+is refused with 400). PubMed's search backend was still failing: 500s, and also HTTP 200 with
+`"ERROR": "Search Backend failed"`, which the adapter read as "no papers" and kept re-searching with fewer words.
+That answer now raises PubMedBackendError (treated as a 502: one retry, then Europe PMC). Two bursts of 5 health
+searches: 10/10 answered by Europe PMC in 10-18 s, no 429 (one 429 before the key), key in no error message.
+PubMed results with the key are not yet confirmed: its backend never answered during the check. `pytest` 215 passed.

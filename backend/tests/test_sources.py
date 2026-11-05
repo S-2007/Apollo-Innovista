@@ -125,7 +125,7 @@ def test_4_http_429_is_retried_then_falls_back(monkeypatch, counted_get):
     calls = counted_get(status=429)
     install(monkeypatch, "europe_pmc", good)
     out = router.fetch("health", Q)
-    assert len(calls) == config.SEARCH_MAX_RETRIES + 1  # bounded retries on the primary only
+    assert len(calls) == 2  # bounded: PubMed gets one retry
     assert out["source"] == "europe_pmc" and out["log"]["fallback_reason"] == "rate_limit"
 
 
@@ -133,7 +133,7 @@ def test_5_http_500_is_retried_then_falls_back(monkeypatch, counted_get):
     calls = counted_get(status=500)
     install(monkeypatch, "europe_pmc", good)
     out = router.fetch("health", Q)
-    assert len(calls) == config.SEARCH_MAX_RETRIES + 1
+    assert len(calls) == 2
     assert out["source"] == "europe_pmc" and out["log"]["fallback_reason"] == "server"
 
 
@@ -141,7 +141,7 @@ def test_6_timeout_is_retried_then_falls_back(monkeypatch, counted_get):
     calls = counted_get(exc=requests.Timeout("read timed out"))
     install(monkeypatch, "europe_pmc", good)
     out = router.fetch("health", Q)
-    assert len(calls) == config.SEARCH_MAX_RETRIES + 1
+    assert len(calls) == 2
     assert out["source"] == "europe_pmc" and out["log"]["fallback_reason"] == "timeout"
 
 
@@ -548,3 +548,16 @@ def test_openalex_429_is_not_retried_and_the_key_goes_in_a_header(monkeypatch):
     assert len(seen) == 1 and out["source"] == "crossref"  # no 34 s wait: straight to the fallback
     params, headers = seen[0]
     assert headers == {"Authorization": "Bearer OA-SECRET"} and "OA-SECRET" not in str(params)
+
+
+def test_pubmed_200_with_a_backend_error_is_an_outage_not_no_papers(monkeypatch):
+    terms_sent = []
+
+    def fake_get(url, params=None, **kwargs):
+        terms_sent.append(params["term"])
+        return http(200, {"esearchresult": {"ERROR": "Search Backend failed: An error occurred"}})
+    monkeypatch.setattr(adapters.requests, "get", fake_get)
+    install(monkeypatch, "europe_pmc", good)
+    out = router.fetch("health", "Does brisk walking lower blood pressure?")
+    assert out["source"] == "europe_pmc" and out["log"]["fallback_reason"] == "server"
+    assert len(terms_sent) == 2 and len(set(terms_sent)) == 1  # one retry, no word-dropping on an outage
