@@ -26,7 +26,8 @@ export interface Derived {
   endMs: number | null
   /** 0-100 from the backend's own events (searches, sections, claims checked), never a timer. */
   progress: number
-  stopReason: string | null // from the final "complete" event; "stopped_by_user" after Pause
+  stopReason: string | null // from the final "complete" event; "stopped_by_user" after Stop
+  paused: boolean // the user paused the run and it is waiting (resume carries the same run on)
 }
 
 // Share of the bar each stage owns, in run order. A stage's share fills as its own events arrive:
@@ -56,6 +57,7 @@ export function derive(events: AnyEvent[], maxRounds = 2): Derived {
   let claimsDone = 0
   let claimsTotal = 0
   let searchHits = 0 // queries whose results arrived (live, per query) in the current round
+  let paused = false
   let stopReason: string | null = null
 
   for (const { e, i } of known) {
@@ -80,6 +82,12 @@ export function derive(events: AnyEvent[], maxRounds = 2): Derived {
         phase = 'searching'
         break
       }
+      case 'paused':
+        paused = true
+        break
+      case 'resumed':
+        paused = false
+        break
       case 'search_results': // arrives as each query's search API answers, before its pages are read
         searchHits += 1
         break
@@ -127,6 +135,7 @@ export function derive(events: AnyEvent[], maxRounds = 2): Derived {
         status = e.data.status === 'failed' ? 'failed' : 'complete'
         phase = status === 'failed' ? 'failed' : 'done'
         stopReason = e.data.stop_reason ?? null
+        paused = false
         planPending = false
         gapsPending = null
         pendingAt = -1
@@ -212,5 +221,6 @@ export function derive(events: AnyEvent[], maxRounds = 2): Derived {
     endMs: finished && times.length ? Math.max(...times) : null,
     progress,
     stopReason,
+    paused,
   }
 }

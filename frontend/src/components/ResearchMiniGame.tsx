@@ -23,7 +23,7 @@ function typingOrOnControl(target: EventTarget | null): boolean {
 }
 
 export default function ResearchMiniGame({ onClose }: { onClose: () => void }) {
-  const { busy, d, stop, stopping } = useStore()
+  const { busy, d, pause, pausing, unpause, stopping } = useStore()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const gameRef = useRef({
     birdY: 150,
@@ -247,7 +247,7 @@ export default function ResearchMiniGame({ onClose }: { onClose: () => void }) {
 
       <div className="research-game-status">
         <div>
-          <span><i className="research-game-live-dot" /> {waiting ? 'Waiting for your approval' : 'Research in progress'}</span>
+          <span><i className="research-game-live-dot" /> {d.paused ? 'Paused' : waiting ? 'Waiting for your approval' : 'Research in progress'}</span>
           <b>{progress}%</b>
         </div>
         <div className="research-game-progress"><i style={{ width: `${progress}%` }} /></div>
@@ -274,11 +274,11 @@ export default function ResearchMiniGame({ onClose }: { onClose: () => void }) {
 
       <button
         className="research-game-pause"
-        disabled={stopping}
-        onClick={() => { void stop(); go('live') }}
+        disabled={stopping || (waiting && !d.paused)}
+        onClick={() => void (d.paused || pausing ? unpause() : pause())}
         type="button"
       >
-        {stopping ? 'Pausing… you can edit the topic on the live report' : 'Pause & edit topic'}
+        {stopping ? 'Stopping…' : d.paused ? 'Resume research' : pausing ? 'Pausing after this step… (resume)' : 'Pause research'}
       </button>
 
       <button className="research-game-progress-link" onClick={() => go('live')} type="button">

@@ -14,7 +14,7 @@ const STOP: Record<string, string> = {
   no_follow_up_queries: 'no new follow-up queries',
   gaps_skipped_by_user: 'gap queries skipped',
   plan_rejected_by_user: 'plan rejected',
-  stopped_by_user: 'paused by you',
+  stopped_by_user: 'stopped by you',
   error: 'stopped by an error',
   interrupted: 'interrupted by a server restart',
   video_unreadable: 'the video could not be read',
@@ -99,6 +99,10 @@ function describe(e: AnyEvent): Line {
       return { tag: 'DRAFT', text: `section ${n(e.data.index) + 1} being written`, tone: 'normal' }
     case 'claim_checked':
       return { tag: 'VERIFY', text: `claim ${n(e.data.done)}/${n(e.data.total)} checked`, tone: 'normal' }
+    case 'paused':
+      return { tag: 'PAUSE', text: 'paused by you after the current step', tone: 'warn' }
+    case 'resumed':
+      return { tag: 'RESUME', text: `resumed after ${n(e.data.paused_seconds)} s; the same run carries on`, tone: 'good' }
     case 'report_written':
       return { tag: 'WRITE', text: 'report text ready; verifying claims', tone: 'good' }
     case 'report_ready':

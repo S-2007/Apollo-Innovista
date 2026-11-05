@@ -955,3 +955,17 @@ the topic and restarted: new run with the new topic and the same settings, game 
 progress moving 84 -> 90 -> 93% during claim checks (the old table sat at 76%). Search progress moved 8 -> 24 -> 28%
 as query results arrived (before: 8 then 48). `pytest` 224 passed (7 new in test_stop.py).
 **Seen:** on a narrow window the floating game covered the Live Report's Pause button; that button is now on the left.
+
+## Phase 3.36: real Pause and Resume (2026-11-06)
+
+**Built:** POST /pause sets a per-run flag; after the step in progress finishes (never cut short), the run thread
+waits (status "paused", event "paused") until POST /continue (event "resumed") or POST /stop. Resume carries the
+SAME run on: its LangGraph state, plan, sources and progress are kept, nothing restarts. Time spent paused is
+recorded per run (core/live.add_paused) and taken out of the research clock (nodes._elapsed), like approval
+waits already were. A run left paused PAUSE_MAX_SECONDS (30 min) ends as stopped. "paused" is an active status
+(heartbeats, live stream). Pause is refused while a run waits for approval. UI: Pause / Resume / Stop & edit topic
+on the Live Report, Pause/Resume in the game; "stopped_by_user" now reads "Stopped by you".
+**Checked live (test database):** paused from the game while Hermes was reviewing; it waited for Hermes to finish
+(slow because the embedding model was loading after the server restart), then paused at 48%; no progress for 15 s;
+Resume continued the same run at "writing 2/5 sections" (58%) and it completed: 1 plan event, paused -> resumed
+(39 s) -> report_ready, 5 sections, 19 sources, 23 claims. `pytest` 229 passed (5 new).

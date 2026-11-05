@@ -129,7 +129,7 @@ export default function LiveReport() {
   const elapsed = start ? Math.max(0, Math.floor(((d.endMs ?? now) - start) / 1000)) : 0
   const stage = stageOf(events, d.finished, d.hermes === 'active')
   const byId = new Map(doc.sources.map((s) => [s.id, s]))
-  const status = reconnecting && !d.finished ? 'Reconnecting to the server…' : d.stopReason === 'stopped_by_user' ? 'Paused by you' : d.status === 'failed' ? 'Stopped' : d.finished ? 'Complete' : d.planPending ? 'Waiting for your approval' : d.gapsPending ? 'Waiting for your approval' : stage === 4 && doc.checked ? `Verifying ${doc.checked.done}/${doc.checked.total}…` : `${STAGES[stage]}…`
+  const status = reconnecting && !d.finished ? 'Reconnecting to the server…' : d.stopReason === 'stopped_by_user' ? 'Stopped by you' : d.paused ? 'Paused · press Resume to carry on' : d.status === 'failed' ? 'Stopped' : d.finished ? 'Complete' : d.planPending ? 'Waiting for your approval' : d.gapsPending ? 'Waiting for your approval' : stage === 4 && doc.checked ? `Verifying ${doc.checked.done}/${doc.checked.total}…` : `${STAGES[stage]}…`
 
   return (
     <div>

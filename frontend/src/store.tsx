@@ -4,7 +4,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import {
-  getMetrics, getReport, getSystem, isTransient, listRuns, restartRun, resumeRun, startRun, stopRun,
+  continueRun, getMetrics, getReport, getSystem, isTransient, listRuns, pauseRun, restartRun, resumeRun, startRun, stopRun,
   type AnyEvent, type Metrics, type Report, type ResumeAction, type RunSummary, type SystemInfo,
 } from './api'
 import { derive, type Derived } from './derive'
@@ -32,10 +32,16 @@ export interface Store {
   setProblem: (m: string | null) => void
   start: (topic: string, rounds: number, hitl: boolean, documents?: string[]) => Promise<boolean>
   answer: (action: ResumeAction, payload?: { sub_questions?: string[]; gaps?: string[] }) => Promise<void>
-  /** Pause: ask the server to end the selected run at its next safe point. */
+  /** Stop: ask the server to end the selected run at its next safe point (it can then be restarted). */
   stop: () => Promise<void>
-  /** True from pressing Pause until the run has actually stopped. */
+  /** True from pressing Stop until the run has actually stopped. */
   stopping: boolean
+  /** Pause: the run waits after its current step. */
+  pause: () => Promise<void>
+  /** True from pressing Pause until the run reports it is paused. */
+  pausing: boolean
+  /** Resume a paused run: the same run carries on from where it stopped. */
+  unpause: () => Promise<void>
   /** Start a new run with an edited topic and the selected (stopped) run's settings; selects it. */
   restart: (topic: string) => Promise<boolean>
   showHitl: boolean
@@ -195,6 +201,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const [pauseRequestedFor, setPauseRequestedFor] = useState<string | null>(null)
+  const pausing = pauseRequestedFor !== null && pauseRequestedFor === runId && busy && !d.paused
+
+  const pause = async () => {
+    if (!runId) return
+    setProblem(null)
+    setPauseRequestedFor(runId)
+    try {
+      await pauseRun(runId)
+    } catch (e) {
+      setPauseRequestedFor(null)
+      setProblem(e instanceof Error ? e.message : 'Could not pause the run.')
+    }
+  }
+
+  const unpause = async () => {
+    if (!runId) return
+    setProblem(null)
+    setPauseRequestedFor(null)
+    try {
+      await continueRun(runId)
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : 'Could not resume the run.')
+    }
+  }
+
   const restart = async (topic: string) => {
     if (!runId) return false
     setProblem(null)
@@ -219,7 +251,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     <Ctx.Provider
       value={{
         runs, runId, selected, select, events: stream.events, d, maxRounds, busy, report, metrics,
-        problem: problem ?? listError ?? connProblem, setProblem, start, answer, stop, stopping, restart, showHitl, refreshRuns,
+        problem: problem ?? listError ?? connProblem, setProblem, start, answer, stop, stopping, pause, pausing, unpause, restart, showHitl, refreshRuns,
         system, refreshSystem, backendOk, reconnecting: stream.reconnecting,
       }}
     >

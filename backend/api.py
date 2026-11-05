@@ -11,7 +11,9 @@ to the browser as Server-Sent Events. Endpoints:
   GET  /api/runs/{id}                status and any pending human decision
   GET  /api/runs/{id}/events         SSE stream of typed events (see events.py)
   POST /api/runs/{id}/resume         answer a pending interrupt {action, payload?}
-  POST /api/runs/{id}/stop           Pause: end the run at its next safe point (stop_reason "stopped_by_user")
+  POST /api/runs/{id}/pause          Pause: the run waits after its current step (status "paused")
+  POST /api/runs/{id}/continue       Resume a paused run where it stopped (same run, nothing restarts)
+  POST /api/runs/{id}/stop           end the run at its next safe point (stop_reason "stopped_by_user")
   POST /api/runs/{id}/restart        a new run with an edited topic {topic} and the old run's settings and documents
   GET  /api/runs/{id}/report         report markdown, sources, verification, conflicts
   GET  /api/runs/{id}/report.md      download the exported Markdown report
@@ -89,7 +91,8 @@ DEMO_TOPICS_FILE = ROOT / "docs" / "demo-topics.md"
 MAX_ROUNDS_LIMIT = 2         # hard project constraint: never more than 2 research rounds
 HEARTBEAT_SECONDS = 15      # SSE keep-alive: a comment line when no event was sent for this long
 HITL_WAIT_SECONDS = 15 * 60  # an unanswered approval is auto-approved after this, so a run always ends
-ACTIVE = {"running", "awaiting_input"}
+ACTIVE = {"running", "awaiting_input", "paused"}
+PAUSE_MAX_SECONDS = 30 * 60  # a run left paused this long ends (as stopped), so it cannot hold the server forever
 
 # Several server processes can share one database (Render and a local server on Neon). Each run row records the
 # process that runs it and a heartbeat that process refreshes; another process treats the run as cut off only
@@ -125,7 +128,9 @@ class Run:
         self.fail_subquestion = 0         # demo switch: N > 0 makes the N-th sub-question's search fail
         self.local = False                # executed by this process (False: loaded from the database)
         self.documents: list[dict] = []   # attached documents read by tools/documents.py (input, not saved)
-        self.stop = threading.Event()     # set by POST /stop (Pause): the run ends at its next safe point
+        self.stop = threading.Event()     # set by POST /stop: the run ends at its next safe point
+        self.pause = threading.Event()    # set by POST /pause: the run waits after its current step
+        self.unpaused = threading.Event() # set by POST /continue (or /stop) to wake a paused run
 
 
 _runs: dict[str, Run] = {}
@@ -402,7 +407,9 @@ def _execute(run: Run) -> None:
                     if node == "review_plan" and update:
                         run.plan = update["plan"]
                     _emit(run, converter.from_update(node, update))
-                if run.stop.is_set():  # Pause: end between nodes, before the next one starts
+                if run.pause.is_set():  # Pause: wait here, between steps, until Resume or Stop
+                    _hold(run)
+                if run.stop.is_set():  # Stop: end between nodes, before the next one starts
                     raise live.RunStopped()
             snapshot = graph.get_state(cfg)
             if not snapshot.interrupts:
@@ -455,9 +462,29 @@ def _execute(run: Run) -> None:
         live.unregister_stop(run.id)
 
 
+def _hold(run: Run) -> None:
+    """The user paused the run: wait between steps, then carry on in the same run (its plan, sources and
+    progress kept). The time spent here is not counted against the research time limit."""
+    began = time.time()
+    with _lock:
+        run.status = "paused"
+    _emit(run, [make_event("paused", {})])
+    woken = run.unpaused.wait(PAUSE_MAX_SECONDS)
+    live.add_paused(run.id, time.time() - began)
+    if not woken:  # left paused too long: end it like a stop, so it can still be restarted
+        run.stop.set()
+    run.pause.clear()
+    run.unpaused.clear()
+    if run.stop.is_set():
+        raise live.RunStopped()
+    with _lock:
+        run.status = "running"
+    _emit(run, [make_event("resumed", {"paused_seconds": round(time.time() - began)})])
+
+
 def _stopped(run: Run) -> None:
     """The user paused the run: it ends here, its topic and settings kept for POST /restart."""
-    _emit(run, [warning_event(["You paused this run. Edit the topic and restart it, or leave it stopped."],
+    _emit(run, [warning_event(["You stopped this run. Edit the topic and restart it, or leave it stopped."],
                               "stopping")])
     _finish(run, "rejected", {"stop_reason": "stopped_by_user"})
 
@@ -618,20 +645,46 @@ class RestartRequest(BaseModel):
     topic: str = Field(min_length=3, max_length=300)
 
 
+def _local_active(run_id: str, user: dict) -> Run:
+    run = _get(run_id, user)
+    if run.status not in ACTIVE:
+        raise HTTPException(409, "This run has already finished.")
+    if not run.local:
+        raise HTTPException(409, "This run is running on another server; manage it there.")
+    return run
+
+
 @app.post("/api/runs/{run_id}/stop")
 def stop_run(run_id: str, user: User) -> dict:
-    """Pause: end this run at its next safe point (between steps, or before its next model or search call)."""
-    run = _get(run_id, user)
+    """End this run at its next safe point (between steps, or before its next model or search call), so it
+    can be restarted with an edited topic. A paused run is woken to end."""
+    run = _local_active(run_id, user)
     with _lock:
-        if run.status not in ACTIVE:
-            raise HTTPException(409, "This run has already finished.")
-        if not run.local:
-            raise HTTPException(409, "This run is running on another server; stop it there.")
         run.stop.set()
         waiting = run.status == "awaiting_input"
         run.pending = None
+    run.unpaused.set()  # a paused run wakes, sees the stop and ends
     if waiting:  # the graph thread is waiting for an approval: wake it so it can stop
         run.answers.put(_STOP)
+    return {"ok": True}
+
+
+@app.post("/api/runs/{run_id}/pause")
+def pause_run(run_id: str, user: User) -> dict:
+    """Pause: the run waits after its current step (the step is never cut short) until /continue or /stop."""
+    run = _local_active(run_id, user)
+    if run.status == "awaiting_input":
+        raise HTTPException(409, "This run is already waiting for your approval.")
+    run.pause.set()
+    return {"ok": True}
+
+
+@app.post("/api/runs/{run_id}/continue")
+def continue_run(run_id: str, user: User) -> dict:
+    """Resume a paused run where it stopped: same run, same plan, sources and progress."""
+    run = _local_active(run_id, user)
+    run.pause.clear()  # a pause not yet reached is cancelled
+    run.unpaused.set()
     return {"ok": True}
 
 

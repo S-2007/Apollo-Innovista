@@ -78,7 +78,8 @@ from .state import ALL_SECTIONS, Query, ResearchState, Section
 
 
 def _elapsed(state: ResearchState, now: float | None = None) -> float:
-    return (now or time.time()) - state["started_at"]
+    # Approval waits are already taken out by shifting started_at; time paused by the user (Pause) is too.
+    return (now or time.time()) - state["started_at"] - live.paused_seconds()
 
 
 def _timed_out(state: ResearchState, now: float | None = None) -> bool:

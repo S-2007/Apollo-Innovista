@@ -18,6 +18,8 @@ export type EventType =
   | 'section_written'
   | 'report_written' // the full report text, before claim verification
   | 'claim_checked' // live: one more claim verified (progress)
+  | 'paused' // the user paused the run; it waits after its current step
+  | 'resumed' // the user resumed it: the same run carries on
   | 'verification'
   | 'quality' // research-quality checks run before completion
   | 'contradictions'
@@ -40,6 +42,8 @@ export interface EventDataMap {
   section_written: { section?: string; index?: number; citations?: number; not_found?: boolean; partly_not_found?: boolean; write_failed?: boolean; text?: string }
   report_written: { markdown?: string }
   claim_checked: { done?: number; total?: number; status?: string }
+  paused: Record<string, never>
+  resumed: { paused_seconds?: number }
   verification: { verified?: number; partial?: number; contradicted?: number; not_found?: number; unchecked?: number }
   quality: { overall?: string; checks?: QualityCheck[] }
   contradictions: { count?: number; reviews?: number; reviews_failed?: number }
@@ -58,7 +62,7 @@ export type UnknownEvent = { type: string; data: Record<string, unknown>; ts: nu
 export type AnyEvent = RunEvent | UnknownEvent
 
 const KNOWN = new Set<string>([
-  'video', 'documents', 'plan', 'search_started', 'search_results', 'search_done', 'search_failed', 'review', 'gaps_pending', 'section_draft', 'section_written', 'report_written', 'claim_checked',
+  'video', 'documents', 'plan', 'search_started', 'search_results', 'search_done', 'search_failed', 'review', 'gaps_pending', 'section_draft', 'section_written', 'report_written', 'claim_checked', 'paused', 'resumed',
   'verification', 'quality', 'contradictions', 'report_ready', 'warning', 'error', 'complete',
 ])
 
@@ -391,8 +395,12 @@ export const uploadDocument = (file: File) => {
 export const resumeRun = (runId: string, action: ResumeAction, payload?: { sub_questions?: string[]; gaps?: string[] }) =>
   request<{ ok: boolean }>(`/api/runs/${runId}/resume`, post(payload ? { action, payload } : { action }))
 
-/** Pause: the run ends at its next safe point, with stop_reason "stopped_by_user". */
+/** Stop: the run ends at its next safe point, with stop_reason "stopped_by_user" (it can then be restarted). */
 export const stopRun = (runId: string) => request<{ ok: boolean }>(`/api/runs/${runId}/stop`, post({}))
+
+/** Pause: the run waits after its current step; continueRun carries the same run on from there. */
+export const pauseRun = (runId: string) => request<{ ok: boolean }>(`/api/runs/${runId}/pause`, post({}))
+export const continueRun = (runId: string) => request<{ ok: boolean }>(`/api/runs/${runId}/continue`, post({}))
 
 /** A new run with an edited topic and the stopped run's depth, approval setting and attached documents. */
 export const restartRun = (runId: string, topic: string) =>
