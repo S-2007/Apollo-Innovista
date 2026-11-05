@@ -4,7 +4,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import {
-  getMetrics, getReport, getSystem, isTransient, listRuns, resumeRun, startRun,
+  getMetrics, getReport, getSystem, isTransient, listRuns, restartRun, resumeRun, startRun, stopRun,
   type AnyEvent, type Metrics, type Report, type ResumeAction, type RunSummary, type SystemInfo,
 } from './api'
 import { derive, type Derived } from './derive'
@@ -32,6 +32,12 @@ export interface Store {
   setProblem: (m: string | null) => void
   start: (topic: string, rounds: number, hitl: boolean, documents?: string[]) => Promise<boolean>
   answer: (action: ResumeAction, payload?: { sub_questions?: string[]; gaps?: string[] }) => Promise<void>
+  /** Pause: ask the server to end the selected run at its next safe point. */
+  stop: () => Promise<void>
+  /** True from pressing Pause until the run has actually stopped. */
+  stopping: boolean
+  /** Start a new run with an edited topic and the selected (stopped) run's settings; selects it. */
+  restart: (topic: string) => Promise<boolean>
   showHitl: boolean
   refreshRuns: () => void
   system: SystemInfo | null
@@ -174,14 +180,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const showHitl = d.pendingAt > answeredAt && (d.planPending || d.gapsPending !== null)
+  const [stopRequestedFor, setStopRequestedFor] = useState<string | null>(null)
+  const stopping = stopRequestedFor !== null && stopRequestedFor === runId && busy
+
+  const stop = async () => {
+    if (!runId) return
+    setProblem(null)
+    setStopRequestedFor(runId)
+    try {
+      await stopRun(runId)
+    } catch (e) {
+      setStopRequestedFor(null)
+      setProblem(e instanceof Error ? e.message : 'Could not pause the run.')
+    }
+  }
+
+  const restart = async (topic: string) => {
+    if (!runId) return false
+    setProblem(null)
+    try {
+      const out = await restartRun(runId, topic)
+      if (out.documents_lost) setProblem('The restarted run has no attached documents: the server no longer had them. Attach them again in a new run if you need them.')
+      setAnsweredAt(-1)
+      setStopRequestedFor(null)
+      setRunId(out.run_id)
+      refreshRuns()
+      return true
+    } catch (e) {
+      setProblem(e instanceof Error ? e.message : 'Could not restart the research.')
+      return false
+    }
+  }
+
+  const showHitl = !stopping && d.pendingAt > answeredAt && (d.planPending || d.gapsPending !== null)
   const connProblem = stream.connectionError ?? (d.status === 'failed' ? d.errorMsg : null)
 
   return (
     <Ctx.Provider
       value={{
         runs, runId, selected, select, events: stream.events, d, maxRounds, busy, report, metrics,
-        problem: problem ?? listError ?? connProblem, setProblem, start, answer, showHitl, refreshRuns,
+        problem: problem ?? listError ?? connProblem, setProblem, start, answer, stop, stopping, restart, showHitl, refreshRuns,
         system, refreshSystem, backendOk, reconnecting: stream.reconnecting,
       }}
     >

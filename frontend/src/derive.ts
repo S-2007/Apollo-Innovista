@@ -24,7 +24,14 @@ export interface Derived {
   reportReady: boolean
   startMs: number | null
   endMs: number | null
+  /** 0-100 from the backend's own events (searches, sections, claims checked), never a timer. */
+  progress: number
+  stopReason: string | null // from the final "complete" event; "stopped_by_user" after Pause
 }
+
+// Share of the bar each stage owns, in run order. A stage's share fills as its own events arrive:
+// searches done of searches started, sections written of sub-questions, claims checked of claims to check.
+const BAND = { plan: 8, search: 40, write: 25, verify: 22 } as const
 
 type Phase = 'planning' | 'awaiting_plan' | 'searching' | 'reviewing' | 'awaiting_gaps' | 'writing' | 'verifying' | 'finishing' | 'done' | 'failed'
 
@@ -46,6 +53,10 @@ export function derive(events: AnyEvent[], maxRounds = 2): Derived {
   let status: Derived['status'] = events.length ? 'running' : 'idle'
   let phase: Phase = 'planning'
   let lastReviewRound = 0
+  let claimsDone = 0
+  let claimsTotal = 0
+  let searchHits = 0 // queries whose results arrived (live, per query) in the current round
+  let stopReason: string | null = null
 
   for (const { e, i } of known) {
     switch (e.type) {
@@ -62,12 +73,16 @@ export function derive(events: AnyEvent[], maxRounds = 2): Derived {
         const r = e.data.round ?? round + 1
         if (e.data.index === 1 || r !== round) {
           searchDone = 0 // index 1 starts a new batch
+          searchHits = 0
         }
         round = Math.max(round, r)
         searchTotal = e.data.total ?? Math.max(searchTotal, e.data.index ?? 0)
         phase = 'searching'
         break
       }
+      case 'search_results': // arrives as each query's search API answers, before its pages are read
+        searchHits += 1
+        break
       case 'search_done':
       case 'search_failed':
         searchDone += 1
@@ -92,6 +107,11 @@ export function derive(events: AnyEvent[], maxRounds = 2): Derived {
         sections += 1
         phase = subQuestions.length && sections >= subQuestions.length ? 'verifying' : 'writing'
         break
+      case 'claim_checked':
+        claimsDone = Math.max(claimsDone, e.data.done ?? claimsDone + 1)
+        claimsTotal = Math.max(claimsTotal, e.data.total ?? 0)
+        phase = 'verifying'
+        break
       case 'verification':
         phase = 'finishing'
         break
@@ -106,6 +126,7 @@ export function derive(events: AnyEvent[], maxRounds = 2): Derived {
       case 'complete':
         status = e.data.status === 'failed' ? 'failed' : 'complete'
         phase = status === 'failed' ? 'failed' : 'done'
+        stopReason = e.data.stop_reason ?? null
         planPending = false
         gapsPending = null
         pendingAt = -1
@@ -153,6 +174,22 @@ export function derive(events: AnyEvent[], maxRounds = 2): Derived {
       'idle',
   }
 
+  // Progress: each finished stage adds its whole band; the stage in progress adds its done/total share.
+  const share = (done: number, total: number) => (total > 0 ? Math.min(1, done / total) : 0)
+  const rounds = Math.max(1, maxRounds)
+  // A round's searches: half for the API answering each query (live), half for its pages read (end of the round).
+  const roundShare = (share(Math.min(searchHits, searchTotal), searchTotal) + share(searchDone, searchTotal)) / 2
+  const searched = lastReviewRound >= round && round > 0 ? round : Math.max(0, round - 1) + roundShare
+  const writingDone = ['verifying', 'finishing', 'done'].includes(phase)
+  let progress =
+    (subQuestions.length && !planPending ? BAND.plan : 0) +
+    (['writing', 'verifying', 'finishing', 'done'].includes(phase) ? BAND.search : BAND.search * share(searched, rounds)) +
+    (writingDone ? BAND.write : BAND.write * share(sections, subQuestions.length)) +
+    (['finishing', 'done'].includes(phase) ? BAND.verify : BAND.verify * share(claimsDone, claimsTotal))
+  if (reportReady) progress = Math.max(progress, 99)
+  if (status === 'complete') progress = 100
+  progress = Math.round(Math.min(100, progress))
+
   const times = events.map((e) => toMs(e.ts)).filter((t) => Number.isFinite(t))
   return {
     round,
@@ -173,5 +210,7 @@ export function derive(events: AnyEvent[], maxRounds = 2): Derived {
     reportReady,
     startMs: times.length ? Math.min(...times) : null,
     endMs: finished && times.length ? Math.max(...times) : null,
+    progress,
+    stopReason,
   }
 }

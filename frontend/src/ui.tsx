@@ -241,6 +241,7 @@ export const STOP_REASON: Record<string, string> = {
   no_follow_up_queries: 'No new follow-up queries',
   gaps_skipped_by_user: 'Gap queries skipped by you',
   plan_rejected_by_user: 'Plan rejected by you',
+  stopped_by_user: 'Paused by you',
   error: 'Stopped by an error',
   interrupted: 'Interrupted by a server restart',
   video_unreadable: 'The video could not be read',

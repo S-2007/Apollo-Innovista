@@ -937,3 +937,21 @@ climate summit question): complete in 119 s, 20 sources (14 Tavily, 6 Guardian w
 is set there), 11 claims (7 verified, 3 partial, 1 not found, 0 unchecked). A sub-question with "frameworks" was
 routed to the tech domain and found nothing; tech routing now needs software-specific words ("framework",
 "library", "code" and "bug" dropped). `pytest` 217 passed. Academic and health keys on Render not yet exercised.
+
+## Phase 3.35: Pause & edit topic; real progress (2026-11-06)
+
+**Built:** POST /api/runs/{id}/stop sets a per-run stop event; the run ends between nodes, and every LLM call,
+domain search and retry wait checks it (core/live.raise_if_stopped), so a node in progress fails fast instead of
+finishing. A run waiting for approval is woken. It ends "rejected" with stop_reason "stopped_by_user". POST
+/api/runs/{id}/restart {topic} starts a new run with the edited topic and the old run's depth, approval setting and
+attached documents (kept in memory while this server has the old run; documents_lost says when they are not).
+UI: "Pause & edit topic" on the Live Report and in the Apollo Flight game; after the stop, an editor with the old
+topic and "Update & restart research". Progress (derive.ts) is now computed from the events: plan, each query's
+results and pages, Hermes' review, sections written of sub-questions, claims checked of claims to check; the game
+and the Live Report show the same number.
+**Checked live (test database):** paused from the game while Hermes waited out a Groq rate limit: stopped, but only
+after about 25-30 s, so retry waits now check the stop event in 0.25 s steps; re-checked: stopped in 1.7 s. Edited
+the topic and restarted: new run with the new topic and the same settings, game back, completed at 100% with
+progress moving 84 -> 90 -> 93% during claim checks (the old table sat at 76%). Search progress moved 8 -> 24 -> 28%
+as query results arrived (before: 8 then 48). `pytest` 224 passed (7 new in test_stop.py).
+**Seen:** on a narrow window the floating game covered the Live Report's Pause button; that button is now on the left.

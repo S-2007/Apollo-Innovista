@@ -441,6 +441,26 @@ body {
   margin-top: 2px;
 }
 
+.research-game-pause {
+  background: var(--color-surface);
+  border: 0;
+  border-top: 1.5px solid var(--color-ink);
+  color: var(--color-ink);
+  display: block;
+  font-size: 11px;
+  padding: 9px 10px;
+  width: 100%;
+}
+
+.research-game-pause:hover:not(:disabled) {
+  background: var(--color-workspace);
+}
+
+.research-game-pause:disabled {
+  color: var(--color-muted);
+  cursor: wait;
+}
+
 .research-game-progress-link {
   align-items: center;
   background: var(--color-ink);

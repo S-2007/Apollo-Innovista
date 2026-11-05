@@ -12,6 +12,7 @@ such errors are not retried, so callers can switch model or give up immediately.
 """
 
 import re
+import time
 
 import requests
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
@@ -86,11 +87,29 @@ def _wait(retry_state) -> float:
     return min(after, MAX_RETRY_AFTER_SECONDS) if after is not None else _backoff(retry_state)
 
 
+STOP_CHECK_SECONDS = 0.25
+
+
+def _sleep(seconds: float) -> None:
+    """Wait between retries in short steps, so a run the user paused stops now instead of after a rate-limit
+    wait of up to MAX_RETRY_AFTER_SECONDS (measured live: about 25 s). Outside a run it is a plain sleep."""
+    from core import live  # imported here: core.llm imports this module
+
+    end = time.monotonic() + seconds
+    while True:
+        live.raise_if_stopped()
+        left = end - time.monotonic()
+        if left <= 0:
+            return
+        time.sleep(min(STOP_CHECK_SECONDS, left))
+
+
 def with_retries(max_retries: int):
     """Decorator: up to `max_retries` retries on transient errors, waiting as the provider asks."""
     return retry(
         retry=retry_if_exception(is_transient),
         stop=stop_after_attempt(max_retries + 1),
         wait=_wait,
+        sleep=_sleep,
         reraise=True,
     )

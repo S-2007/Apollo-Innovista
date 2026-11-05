@@ -7,6 +7,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { isKnown, toMs, type AnyEvent, type ClaimStatus, type Report, type Source } from '../api'
 import HitlPanel from '../components/HitlPanel'
+import PauseEditPanel from '../components/PauseEditPanel'
 import ProgressFeed from '../components/ProgressFeed'
 import ReportView, { withChips } from '../components/ReportView'
 import { go } from '../router'
@@ -128,7 +129,7 @@ export default function LiveReport() {
   const elapsed = start ? Math.max(0, Math.floor(((d.endMs ?? now) - start) / 1000)) : 0
   const stage = stageOf(events, d.finished, d.hermes === 'active')
   const byId = new Map(doc.sources.map((s) => [s.id, s]))
-  const status = reconnecting && !d.finished ? 'Reconnecting to the server…' : d.status === 'failed' ? 'Stopped' : d.finished ? 'Complete' : d.planPending ? 'Waiting for your approval' : d.gapsPending ? 'Waiting for your approval' : stage === 4 && doc.checked ? `Verifying ${doc.checked.done}/${doc.checked.total}…` : `${STAGES[stage]}…`
+  const status = reconnecting && !d.finished ? 'Reconnecting to the server…' : d.stopReason === 'stopped_by_user' ? 'Paused by you' : d.status === 'failed' ? 'Stopped' : d.finished ? 'Complete' : d.planPending ? 'Waiting for your approval' : d.gapsPending ? 'Waiting for your approval' : stage === 4 && doc.checked ? `Verifying ${doc.checked.done}/${doc.checked.total}…` : `${STAGES[stage]}…`
 
   return (
     <div>
@@ -136,11 +137,12 @@ export default function LiveReport() {
       <div className="relative mb-5 border border-line bg-surface px-4 py-3">
         <div className="absolute inset-x-0 bottom-0 h-[2px] bg-surface-2" aria-hidden="true">
           <div className={`grow-x h-full w-full ${d.status === 'failed' ? 'bg-err' : d.finished ? 'bg-ok' : 'bg-accent-strong'}`}
-            style={{ '--p': d.finished ? 1 : (stage + (stage === 4 && doc.checked?.total ? doc.checked.done / doc.checked.total : 0.5)) / (STAGES.length - 1) } as CSSProperties} />
+            style={{ '--p': d.finished ? 1 : d.progress / 100 } as CSSProperties} />
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <p className="label">Live report</p>
           <p className="font-mono text-xs text-ink" aria-live="polite">{status}</p>
+          <p className="font-mono text-xs text-ink tabular-nums" aria-label={`${d.progress} percent done`}>{d.progress}%</p>
           <p className="font-mono text-xs text-muted">{String(Math.floor(elapsed / 60)).padStart(2, '0')}:{String(elapsed % 60).padStart(2, '0')}</p>
           <p className="font-mono text-xs text-muted">{doc.sources.length} sources · {[...doc.sections.values()].filter((s) => s.final).length}/{doc.plan.length || '?'} sections</p>
           <ol className="flex flex-wrap gap-1 sm:ml-auto" aria-label="Progress">
@@ -157,6 +159,8 @@ export default function LiveReport() {
           </ol>
         </div>
       </div>
+
+      <PauseEditPanel />
 
       {showHitl && (
         <div className="mb-5">

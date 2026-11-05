@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { go } from '../router'
 import { useStore } from '../store'
 
@@ -23,7 +23,7 @@ function typingOrOnControl(target: EventTarget | null): boolean {
 }
 
 export default function ResearchMiniGame({ onClose }: { onClose: () => void }) {
-  const { busy, d } = useStore()
+  const { busy, d, stop, stopping } = useStore()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const gameRef = useRef({
     birdY: 150,
@@ -43,17 +43,8 @@ export default function ResearchMiniGame({ onClose }: { onClose: () => void }) {
   const waiting = d.planPending || !!d.gapsPending?.length
   const activeAgent = d.apollo === 'active' ? 'Apollo' : d.athena === 'active' ? 'Athena' : d.hermes === 'active' ? 'Hermes' : 'Apollo'
   const stage = activeAgent === 'Apollo' ? d.labels.apollo : activeAgent === 'Athena' ? d.labels.athena : d.labels.hermes
-  const progress = useMemo(() => {
-    if (d.reportReady) return 96
-    if (d.status === 'complete') return 100
-    if (d.hermes === 'active') return 64
-    if (d.athena === 'active') {
-      const searchShare = d.searchTotal > 0 ? d.searchDone / d.searchTotal : 0
-      return Math.round(30 + searchShare * 28)
-    }
-    if (d.apollo === 'active') return d.round > 0 ? 76 : 18
-    return 12
-  }, [d])
+  // Real progress from the backend's events (derive.ts): searches, sections and claims done so far.
+  const progress = d.progress
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -280,6 +271,15 @@ export default function ResearchMiniGame({ onClose }: { onClose: () => void }) {
           {status === 'ended' ? 'Restart' : status === 'ready' ? 'Start game' : 'Flap'}
         </button>
       </div>
+
+      <button
+        className="research-game-pause"
+        disabled={stopping}
+        onClick={() => { void stop(); go('live') }}
+        type="button"
+      >
+        {stopping ? 'Pausing… you can edit the topic on the live report' : 'Pause & edit topic'}
+      </button>
 
       <button className="research-game-progress-link" onClick={() => go('live')} type="button">
         {waiting ? 'Open the approval →' : 'View live research progress →'}

@@ -14,6 +14,7 @@ const STOP: Record<string, string> = {
   no_follow_up_queries: 'no new follow-up queries',
   gaps_skipped_by_user: 'gap queries skipped',
   plan_rejected_by_user: 'plan rejected',
+  stopped_by_user: 'paused by you',
   error: 'stopped by an error',
   interrupted: 'interrupted by a server restart',
   video_unreadable: 'the video could not be read',

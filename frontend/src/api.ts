@@ -391,6 +391,13 @@ export const uploadDocument = (file: File) => {
 export const resumeRun = (runId: string, action: ResumeAction, payload?: { sub_questions?: string[]; gaps?: string[] }) =>
   request<{ ok: boolean }>(`/api/runs/${runId}/resume`, post(payload ? { action, payload } : { action }))
 
+/** Pause: the run ends at its next safe point, with stop_reason "stopped_by_user". */
+export const stopRun = (runId: string) => request<{ ok: boolean }>(`/api/runs/${runId}/stop`, post({}))
+
+/** A new run with an edited topic and the stopped run's depth, approval setting and attached documents. */
+export const restartRun = (runId: string, topic: string) =>
+  request<{ run_id: string; documents_kept: number; documents_lost: boolean }>(`/api/runs/${runId}/restart`, post({ topic }))
+
 export const getReport = (runId: string) => request<Report>(`/api/runs/${runId}/report`)
 export const getEvidence = (runId: string) => request<Evidence>(`/api/runs/${runId}/evidence`)
 

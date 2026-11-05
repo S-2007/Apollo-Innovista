@@ -11,6 +11,8 @@ to the browser as Server-Sent Events. Endpoints:
   GET  /api/runs/{id}                status and any pending human decision
   GET  /api/runs/{id}/events         SSE stream of typed events (see events.py)
   POST /api/runs/{id}/resume         answer a pending interrupt {action, payload?}
+  POST /api/runs/{id}/stop           Pause: end the run at its next safe point (stop_reason "stopped_by_user")
+  POST /api/runs/{id}/restart        a new run with an edited topic {topic} and the old run's settings and documents
   GET  /api/runs/{id}/report         report markdown, sources, verification, conflicts
   GET  /api/runs/{id}/report.md      download the exported Markdown report
   GET  /api/runs/{id}/contradictions        the pyvis contradiction map (text/html)
@@ -97,6 +99,7 @@ RUN_HEARTBEAT_SECONDS = 20   # how often this process confirms its active runs a
 STALE_SECONDS = 90           # a run whose server has been silent this long has stopped with it
 LEGACY_STALE_SECONDS = 1800  # rows from servers without heartbeats: only this old counts as stopped
 _REJECT = object()           # resume value meaning "cancel this run"
+_STOP = object()             # sent to a run waiting for a decision when the user presses Pause
 
 app = FastAPI(title="Apollo deep research")
 app.add_middleware(CORSMiddleware, allow_origins=VITE_ORIGINS, allow_methods=["*"], allow_headers=["*"])
@@ -122,6 +125,7 @@ class Run:
         self.fail_subquestion = 0         # demo switch: N > 0 makes the N-th sub-question's search fail
         self.local = False                # executed by this process (False: loaded from the database)
         self.documents: list[dict] = []   # attached documents read by tools/documents.py (input, not saved)
+        self.stop = threading.Event()     # set by POST /stop (Pause): the run ends at its next safe point
 
 
 _runs: dict[str, Run] = {}
@@ -379,6 +383,7 @@ def _ensure_watcher() -> None:
 def _execute(run: Run) -> None:
     converter = EventConverter()
     live.register(run.id, lambda type_, data: _emit(run, [make_event(type_, data)]))
+    live.register_stop(run.id, run.stop)
     # Store the run as "running" right away: if the server restarts mid-run (out of memory, redeploy),
     # the next start finds it and marks it interrupted instead of the run silently disappearing.
     _save(run)
@@ -397,6 +402,8 @@ def _execute(run: Run) -> None:
                     if node == "review_plan" and update:
                         run.plan = update["plan"]
                     _emit(run, converter.from_update(node, update))
+                if run.stop.is_set():  # Pause: end between nodes, before the next one starts
+                    raise live.RunStopped()
             snapshot = graph.get_state(cfg)
             if not snapshot.interrupts:
                 break
@@ -412,6 +419,8 @@ def _execute(run: Run) -> None:
             if answer is _REJECT:
                 _finish(run, "rejected", {"stop_reason": "plan_rejected_by_user"})
                 return
+            if answer is _STOP:
+                raise live.RunStopped()
             with _lock:
                 run.pending, run.status = None, "running"
             payload = Command(resume=answer)
@@ -427,6 +436,8 @@ def _execute(run: Run) -> None:
             run.state = final
         _emit(run, [make_event("report_ready", {})])
         _finish(run, final["status"], {"stop_reason": final["stop_reason"], "rounds": final["round_no"]})
+    except live.RunStopped:
+        _stopped(run)
     except llm.LLMUnavailable as exc:  # every model's quota is spent: stopped before searching
         _emit(run, [make_event("error", {"message": str(exc)[:600]})])
         _finish(run, "failed", {"stop_reason": "llm_quota"})
@@ -434,10 +445,21 @@ def _execute(run: Run) -> None:
         _emit(run, [make_event("error", {"message": str(exc)[:600]})])
         _finish(run, "failed", {"stop_reason": "video_unreadable"})
     except Exception as exc:  # a run-level failure is reported as events, never as a crash
+        if run.stop.is_set():  # a node failed only because it was stopped part-way
+            _stopped(run)
+            return
         _emit(run, [make_event("error", {"message": f"Run failed: {type(exc).__name__}: {str(exc)[:300]}"})])
         _finish(run, "failed", {"stop_reason": "error"})
     finally:
         live.unregister(run.id)
+        live.unregister_stop(run.id)
+
+
+def _stopped(run: Run) -> None:
+    """The user paused the run: it ends here, its topic and settings kept for POST /restart."""
+    _emit(run, [warning_event(["You paused this run. Edit the topic and restart it, or leave it stopped."],
+                              "stopping")])
+    _finish(run, "rejected", {"stop_reason": "stopped_by_user"})
 
 
 # ---------------------------------------------------------------- demo switch
@@ -567,16 +589,21 @@ def me(user: User) -> dict:
 def start_run(req: RunRequest, user: User) -> dict:
     if llm.all_exhausted():  # known from earlier calls: refuse at once rather than start a run that cannot finish
         raise HTTPException(503, llm.quota_message())
-    passages.clear_cache()  # bounded memory; each run re-embeds its own sources
-    if config.EMBED_WARM_UP:
-        embed.warm_up()  # load the model while the run plans and searches, not when verification starts
     now = time.time()
     with _lock:
         docs = [_uploads.get(i) for i in req.documents]
     if any(d is None or d["owner"] != user["id"] or now - d["created"] > config.DOCUMENT_UPLOAD_TTL_SECONDS for d in docs):
         raise HTTPException(400, "An attached document has expired or was not uploaded; attach it again.")
-    run = Run(req.topic.strip(), req.max_rounds, req.hitl, owner=user["id"])
-    run.documents = [d["doc"] for d in docs]
+    return {"run_id": _launch(req.topic.strip(), req.max_rounds, req.hitl, user["id"], [d["doc"] for d in docs]).id}
+
+
+def _launch(topic: str, max_rounds: int, hitl: bool, owner: str, documents: list[dict]) -> Run:
+    """Create a run and start its graph in a background thread (POST /api/runs and POST /restart)."""
+    passages.clear_cache()  # bounded memory; each run re-embeds its own sources
+    if config.EMBED_WARM_UP:
+        embed.warm_up()  # load the model while the run plans and searches, not when verification starts
+    run = Run(topic, max_rounds, hitl, owner=owner)
+    run.documents = documents
     run.local = True
     _ensure_watcher()
     if DEMO_FAIL_SUBQUESTION and any(t["id"] == "B" and t["topic"] == run.topic for t in _demo_topics()):
@@ -584,7 +611,43 @@ def start_run(req: RunRequest, user: User) -> dict:
     with _lock:
         _runs[run.id] = run
     threading.Thread(target=_execute, args=(run,), daemon=True, name=f"run-{run.id[:8]}").start()
-    return {"run_id": run.id}
+    return run
+
+
+class RestartRequest(BaseModel):
+    topic: str = Field(min_length=3, max_length=300)
+
+
+@app.post("/api/runs/{run_id}/stop")
+def stop_run(run_id: str, user: User) -> dict:
+    """Pause: end this run at its next safe point (between steps, or before its next model or search call)."""
+    run = _get(run_id, user)
+    with _lock:
+        if run.status not in ACTIVE:
+            raise HTTPException(409, "This run has already finished.")
+        if not run.local:
+            raise HTTPException(409, "This run is running on another server; stop it there.")
+        run.stop.set()
+        waiting = run.status == "awaiting_input"
+        run.pending = None
+    if waiting:  # the graph thread is waiting for an approval: wake it so it can stop
+        run.answers.put(_STOP)
+    return {"ok": True}
+
+
+@app.post("/api/runs/{run_id}/restart")
+def restart_run(run_id: str, req: RestartRequest, user: User) -> dict:
+    """A new run with an edited topic and the old run's depth, approval setting and attached documents."""
+    old = _get(run_id, user)
+    if old.status in ACTIVE:
+        raise HTTPException(409, "Pause this run before restarting it.")
+    if llm.all_exhausted():
+        raise HTTPException(503, llm.quota_message())
+    # Attached documents are kept in memory only, so they carry over while this server has the old run;
+    # had_documents says whether the old run used some, so the UI can ask to attach them again if they are gone.
+    had_documents = bool(old.documents) or any(e.get("type") == "documents" for e in old.events)
+    run = _launch(req.topic.strip(), old.max_rounds, old.hitl, user["id"], list(old.documents))
+    return {"run_id": run.id, "documents_kept": len(old.documents), "documents_lost": had_documents and not old.documents}
 
 
 @app.post("/api/documents")

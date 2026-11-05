@@ -30,7 +30,7 @@ import time
 
 import requests
 
-from core import config, replay
+from core import config, live, replay
 from tools.quality import relevance
 from tools.retry_policy import _status_code
 from tools.sources import adapters, cache
@@ -209,7 +209,9 @@ def fetch(domain: str, query: str, params: dict | None = None) -> dict:
 
 
 def search_domain(domain: str, query: str, errors: list[str]) -> list[dict]:
-    """Athena's entry point: the results of fetch(), its messages appended to `errors`. Never raises."""
+    """Athena's entry point: the results of fetch(), its messages appended to `errors`. Raises only
+    live.RunStopped, when the user stopped the run (no further searches for it)."""
+    live.raise_if_stopped()
     if domain not in DOMAINS:
         return []
     answer = fetch(domain, query)

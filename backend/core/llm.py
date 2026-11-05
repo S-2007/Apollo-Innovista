@@ -18,7 +18,7 @@ reasoning tokens count against Groq's token limits.
 import time
 from typing import Callable
 
-from core import config, metering, replay
+from core import config, live, metering, replay
 from tools.retry_policy import ConfigError, is_quota_exhausted, with_retries
 
 _clients: dict[str, object] = {}
@@ -91,6 +91,7 @@ def chat(
 
     on_text (optional) streams the reply: it is called with the text so far as it arrives. If a model
     fails and the next one takes over, the text restarts from that model's first chunk."""
+    live.raise_if_stopped()  # the user pressed Pause: no further model calls for this run
     if replay.active():  # LLM_MODE=replay: a fixed offline reply, no provider is called
         return replay.chat(system, user, on_text)
     if provider or model:
@@ -105,6 +106,8 @@ def chat(
     for p, m in candidates:
         try:
             return _chat_one(p, m, system, user, temperature, on_text)
+        except live.RunStopped:
+            raise  # paused during a retry wait: not a model failure, so no next model is tried
         except Exception as exc:
             if is_quota_exhausted(exc):
                 _cooling[(p, m)] = time.monotonic() + config.LLM_COOLDOWN_SECONDS
