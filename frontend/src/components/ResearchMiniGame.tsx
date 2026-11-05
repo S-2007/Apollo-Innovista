@@ -23,7 +23,7 @@ function typingOrOnControl(target: EventTarget | null): boolean {
 }
 
 export default function ResearchMiniGame({ onClose }: { onClose: () => void }) {
-  const { busy, d, pause, pausing, unpause, stopping } = useStore()
+  const { busy, d, openEdit, editing, stopping } = useStore()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const gameRef = useRef({
     birdY: 150,
@@ -272,13 +272,15 @@ export default function ResearchMiniGame({ onClose }: { onClose: () => void }) {
         </button>
       </div>
 
+      {/* The same "Stop & edit topic" as on the live report: the run pauses and the editor opens there,
+          with Resume (keep the old topic) or Update & restart. */}
       <button
         className="research-game-pause"
-        disabled={stopping || (waiting && !d.paused)}
-        onClick={() => void (d.paused || pausing ? unpause() : pause())}
+        disabled={stopping}
+        onClick={() => { if (!editing) void openEdit(); go('live') }}
         type="button"
       >
-        {stopping ? 'Stopping…' : d.paused ? 'Resume research' : pausing ? 'Pausing after this step… (resume)' : 'Pause research'}
+        {stopping ? 'Stopping…' : editing ? 'Editing the topic on the live report →' : 'Stop & edit topic'}
       </button>
 
       <button className="research-game-progress-link" onClick={() => go('live')} type="button">

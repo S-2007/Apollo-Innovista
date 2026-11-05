@@ -1,8 +1,11 @@
-// Pause, resume, or stop and edit the topic, while a run works (Live Report).
-//   Pause:  the run waits after its current step (POST /pause); nothing in progress is cut short.
-//   Resume: the SAME run carries on from there (POST /continue): plan, sources and progress kept.
-//   Stop & edit topic: the run ends (POST /stop); an editor then restarts it as a new run with the
-//   edited topic and the stopped run's depth, approval setting and documents (POST /restart).
+// Stop & edit topic, while a run works (Live Report). One button, two ways out:
+//   Stop & edit topic: the run PAUSES after its current step (POST /pause; nothing is cut short) and an
+//     editor opens with the topic. A run already waiting for approval is not paused: it is waiting anyway.
+//   Resume: no edit after all. The SAME run carries on with its old topic (POST /continue): plan, sources
+//     and progress kept, nothing starts over.
+//   Update & restart research: the paused run ends (POST /stop) and a new run starts with the edited topic
+//     and the old run's depth, approval setting and documents (POST /restart).
+// A run that already ended as "stopped by you" (e.g. left paused 30 minutes) shows the editor without Resume.
 
 import { useEffect, useState } from 'react'
 import { useStore } from '../store'
@@ -12,8 +15,8 @@ const MIN = 3
 const MAX = 300
 
 export default function PauseEditPanel() {
-  const { busy, stopping, stop, pausing, pause, unpause, restart, selected, d } = useStore()
-  const paused = !busy && d.stopReason === 'stopped_by_user'
+  const { busy, stopping, pausing, openEdit, editing, closeEdit, restartEdited, selected, d } = useStore()
+  const ended = !busy && d.stopReason === 'stopped_by_user'
   const original = selected?.topic ?? ''
   const [topic, setTopic] = useState(original)
   const [sending, setSending] = useState(false)
@@ -21,51 +24,49 @@ export default function PauseEditPanel() {
   // A different run selected (or the run list caught up): start the editor from that run's topic.
   useEffect(() => setTopic(original), [original, selected?.run_id])
 
-  if (!busy && !paused) return null
+  if (!busy && !ended) return null
 
-  if (busy) {
-    const approval = d.planPending || !!d.gapsPending // waiting for the user already: no Pause then
-    const message = stopping
-      ? 'Stopping… the run ends at its next safe point, then you can edit the topic.'
-      : d.paused
-        ? 'Paused. Resume carries this run on from where it stopped; nothing starts over.'
-        : pausing
-          ? 'Pausing after the current step… the step in progress finishes first.'
-          : approval
-            ? 'The run is waiting for your approval below.'
-            : 'Pause the research and resume it later, or stop it to change the topic.'
+  if (busy && !editing) {
     return (
-      // The buttons come first (left): the floating game panel sits on the right and could cover them there.
-      <div className="mb-5 flex flex-wrap items-center gap-3 border border-line bg-surface px-4 py-3" role="region" aria-label="Pause or stop research">
-        {!stopping && (d.paused || pausing) && (
-          <button type="button" onClick={unpause} className={btn.primary}>Resume</button>
-        )}
-        {!stopping && !d.paused && !pausing && !approval && (
-          <button type="button" onClick={pause} className={btn.secondary}>Pause</button>
-        )}
-        <button type="button" onClick={stop} disabled={stopping} className={btn.secondary}>
+      // The button comes first (left): the floating game panel sits on the right and could cover it there.
+      <div className="mb-5 flex flex-wrap items-center gap-3 border border-line bg-surface px-4 py-3" role="region" aria-label="Stop and edit topic">
+        <button type="button" onClick={openEdit} disabled={stopping} className={btn.secondary}>
           {stopping ? 'Stopping…' : 'Stop & edit topic'}
         </button>
-        <p className="min-w-0 flex-1 text-sm text-ink" aria-live="polite">{message}</p>
+        <p className="min-w-0 flex-1 text-sm text-ink">
+          Need to change the question? The research pauses while you edit; resume it if you change your mind.
+        </p>
       </div>
     )
   }
 
+  const approval = d.planPending || !!d.gapsPending
+  const status = !busy
+    ? 'Stopped by you'
+    : d.paused
+      ? 'Paused · nothing is lost'
+      : pausing
+        ? 'Pausing after the current step…'
+        : approval
+          ? 'Waiting for your approval'
+          : 'Paused'
   const clean = topic.trim()
   const valid = clean.length >= MIN && clean.length <= MAX
+  const same = clean === original.trim()
+
   return (
     <form
       className="neo-panel mb-5 border border-line bg-surface px-4 py-4"
-      aria-label="Edit topic and restart"
+      aria-label="Edit topic"
       onSubmit={async (e) => {
         e.preventDefault()
         if (!valid || sending) return
         setSending(true)
-        await restart(clean)
+        await restartEdited(clean)
         setSending(false)
       }}
     >
-      <p className="label">Stopped by you</p>
+      <p className="label" aria-live="polite">{status}</p>
       <label htmlFor="restart-topic" className="mt-2 block text-sm font-medium text-ink">Research topic</label>
       <textarea
         id="restart-topic"
@@ -75,12 +76,20 @@ export default function PauseEditPanel() {
         maxLength={MAX}
         className={`${field} mt-1.5 resize-y`}
       />
-      <div className="mt-2 flex flex-wrap items-center gap-3">
-        <p className="min-w-0 flex-1 text-xs text-muted">
-          {clean === original.trim() ? 'Same topic: the research starts again from the beginning.' : 'Edited topic.'} The new run keeps this run’s depth, approval setting and attached documents.
-          {!valid && clean.length > 0 && ` The topic needs ${MIN}–${MAX} characters.`}
-        </p>
-        <button type="submit" disabled={!valid || sending} className={btn.primary}>
+      <p className="mt-1.5 text-xs text-muted">
+        {busy
+          ? 'Resume carries this run on with its original topic, from where it paused. Update & restart starts a new run with the topic above'
+          : 'This run has ended. Update & restart starts a new run with the topic above'}
+        {' '}(same depth, approval setting and attached documents){same ? ', from the beginning' : ''}.
+        {!valid && clean.length > 0 && ` The topic needs ${MIN}–${MAX} characters.`}
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        {busy && (
+          <button type="button" onClick={() => { setTopic(original); void closeEdit() }} disabled={sending || stopping} className={btn.primary}>
+            Resume
+          </button>
+        )}
+        <button type="submit" disabled={!valid || sending} className={busy ? btn.secondary : btn.primary}>
           {sending ? 'Restarting…' : 'Update & restart research'}
         </button>
       </div>

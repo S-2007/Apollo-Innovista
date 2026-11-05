@@ -4,7 +4,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import {
-  continueRun, getMetrics, getReport, getSystem, isTransient, listRuns, pauseRun, restartRun, resumeRun, startRun, stopRun,
+  continueRun, getMetrics, getReport, getRunStatus, getSystem, isTransient, listRuns, pauseRun, restartRun, resumeRun, startRun, stopRun,
   type AnyEvent, type Metrics, type Report, type ResumeAction, type RunSummary, type SystemInfo,
 } from './api'
 import { derive, type Derived } from './derive'
@@ -42,6 +42,14 @@ export interface Store {
   pausing: boolean
   /** Resume a paused run: the same run carries on from where it stopped. */
   unpause: () => Promise<void>
+  /** Stop & edit topic: pause the run (unless it already waits for approval) and open the topic editor. */
+  openEdit: () => Promise<void>
+  /** True while the topic editor is open for the selected run. */
+  editing: boolean
+  /** Resume from the editor: close it and carry the same run on with its old topic. */
+  closeEdit: () => Promise<void>
+  /** Update & restart: end the selected run if it is still alive, then start a new run with `topic`. */
+  restartEdited: (topic: string) => Promise<boolean>
   /** Start a new run with an edited topic and the selected (stopped) run's settings; selects it. */
   restart: (topic: string) => Promise<boolean>
   showHitl: boolean
@@ -227,6 +235,47 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const [editFor, setEditFor] = useState<string | null>(null)
+  const editing = editFor !== null && editFor === runId
+
+  const openEdit = async () => {
+    if (!runId) return
+    setEditFor(runId)
+    // A run waiting for approval is already waiting for the user: it is not paused, Resume just closes the editor.
+    if (busy && !d.paused && !d.planPending && !d.gapsPending) await pause()
+  }
+
+  const closeEdit = async () => {
+    setEditFor(null)
+    if (busy && (d.paused || pausing)) await unpause()
+  }
+
+  const restartEdited = async (topic: string) => {
+    if (!runId) return false
+    if (busy) {
+      // The run is paused (or about to be): end it first; /restart needs a finished run.
+      try {
+        await stopRun(runId)
+      } catch (e) {
+        setProblem(e instanceof Error ? e.message : 'Could not stop the run.')
+        return false
+      }
+      const until = Date.now() + 90_000
+      for (;;) {
+        const { status } = await getRunStatus(runId).catch(() => ({ status: 'running' }))
+        if (!['running', 'paused', 'awaiting_input'].includes(status)) break
+        if (Date.now() > until) {
+          setProblem('The run is taking long to stop; try Update & restart again in a moment.')
+          return false
+        }
+        await new Promise((r) => setTimeout(r, 700))
+      }
+    }
+    const ok = await restart(topic)
+    if (ok) setEditFor(null)
+    return ok
+  }
+
   const restart = async (topic: string) => {
     if (!runId) return false
     setProblem(null)
@@ -251,7 +300,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     <Ctx.Provider
       value={{
         runs, runId, selected, select, events: stream.events, d, maxRounds, busy, report, metrics,
-        problem: problem ?? listError ?? connProblem, setProblem, start, answer, stop, stopping, pause, pausing, unpause, restart, showHitl, refreshRuns,
+        problem: problem ?? listError ?? connProblem, setProblem, start, answer, stop, stopping, pause, pausing, unpause, openEdit, editing, closeEdit, restartEdited, restart, showHitl, refreshRuns,
         system, refreshSystem, backendOk, reconnecting: stream.reconnecting,
       }}
     >
