@@ -13,7 +13,7 @@ export function Panel({ title, label, aside, children, className = '', pad = tru
   title?: string; label?: string; aside?: ReactNode; children: ReactNode; className?: string; pad?: boolean
 }) {
   return (
-    <section className={`min-w-0 border border-line bg-surface ${className}`}>
+    <section className={`neo-panel min-w-0 border border-line bg-surface ${className}`}>
       {(title || aside || label) && (
         <header className="flex flex-wrap items-center justify-between gap-2 border-b border-hair px-4 py-2.5">
           <div className="min-w-0">
@@ -38,7 +38,7 @@ export function PageHeader({ kicker, title, children }: { kicker: string; title:
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3 border-b border-line pb-4">
       <div className="min-w-0">
         <p className="label">{kicker}</p>
-        <h1 className="mt-1 font-display text-[26px] font-semibold leading-tight tracking-tight text-ink">{title}</h1>
+        <h1 className="neo-page-title mt-2 font-display font-semibold leading-[0.95] tracking-[-0.045em] text-ink">{title}</h1>
       </div>
       {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
     </div>
@@ -50,7 +50,7 @@ const TONE_TEXT: Record<Tone, string> = { normal: 'text-ink', good: 'text-ok-ink
 
 export function Stat({ label, value, sub, tone = 'normal' }: { label: string; value: ReactNode; sub?: ReactNode; tone?: Tone }) {
   return (
-    <div className="min-w-0 border border-line bg-surface px-4 py-3">
+    <div className="neo-stat min-w-0 border border-line bg-surface px-4 py-3">
       <p className="label">{label}</p>
       <p className={`mt-1.5 font-display text-[26px] font-semibold leading-none tabular-nums ${TONE_TEXT[tone]}`}>{value}</p>
       {sub && <p className="mt-1.5 truncate text-xs text-muted">{sub}</p>}
@@ -132,13 +132,13 @@ export function Meter({ value, max, color = 'bg-accent' }: { value: number; max:
 // ------------------------------------------------------------------ controls
 
 export const btn = {
-  primary: 'inline-flex items-center justify-center gap-2 bg-accent-ink px-3.5 py-2 font-display text-[13px] font-semibold tracking-wide text-white hover:bg-ink hover:shadow-[0_2px_6px_-2px_rgb(17_19_24/0.35)] disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-muted disabled:shadow-none',
-  secondary: 'inline-flex items-center justify-center gap-2 border border-line bg-surface px-3 py-1.5 text-[13px] text-ink hover:border-ink hover:bg-workspace disabled:cursor-not-allowed disabled:text-muted disabled:hover:border-line disabled:hover:bg-surface',
-  danger: 'inline-flex items-center justify-center gap-2 border border-err/60 bg-surface px-3 py-1.5 text-[13px] text-err-ink hover:bg-err/10 disabled:cursor-not-allowed disabled:opacity-50',
+  primary: 'neo-button neo-button-primary inline-flex items-center justify-center gap-2 border border-ink bg-accent px-3.5 py-2 font-display text-[13px] font-semibold tracking-wide text-ink disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-muted disabled:shadow-none',
+  secondary: 'neo-button inline-flex items-center justify-center gap-2 border border-ink bg-surface px-3 py-1.5 text-[13px] text-ink hover:bg-workspace disabled:cursor-not-allowed disabled:text-muted disabled:hover:bg-surface',
+  danger: 'neo-button inline-flex items-center justify-center gap-2 border border-err-ink bg-surface px-3 py-1.5 text-[13px] text-err-ink hover:bg-err/10 disabled:cursor-not-allowed disabled:opacity-50',
   ghost: 'inline-flex items-center gap-1.5 px-2 py-1 text-[13px] text-accent-ink underline decoration-transparent underline-offset-4 hover:decoration-accent-ink',
 }
 
-export const field = 'w-full border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent-strong focus:outline-none disabled:bg-surface-2 disabled:text-muted'
+export const field = 'neo-field w-full border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent-strong focus:outline-none disabled:bg-surface-2 disabled:text-muted'
 
 export function Segmented<T extends string>({ value, options, onChange, label }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; label: string }) {
   return (

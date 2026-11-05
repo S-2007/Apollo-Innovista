@@ -55,10 +55,13 @@ function Sidebar({ page, onNavigate }: { page: PageKey; onNavigate: () => void }
   const live = runs.filter((r) => r.status === 'running' || r.status === 'awaiting_input').length
 
   return (
-    <nav aria-label="System navigation" className="flex h-full flex-col bg-surface">
-      <div className="border-b border-line px-5 pb-4 pt-5">
-        <p className="font-display text-[22px] font-bold leading-none tracking-[0.22em] text-ink">APOLLO</p>
-        <p className="label mt-1.5">Multi-agent research</p>
+    <nav aria-label="System navigation" className="neo-sidebar flex h-full flex-col bg-surface">
+      <div className="flex items-center gap-3 border-b border-line px-5 py-5">
+        <span className="neo-brand-mark" aria-hidden="true">A</span>
+        <div>
+          <p className="font-display text-[20px] font-bold leading-none tracking-[0.18em] text-ink">APOLLO</p>
+          <p className="label mt-1.5">Multi-agent research</p>
+        </div>
       </div>
       <p className="label px-5 pb-1 pt-4">System</p>
       <ul className="min-h-0 flex-1 overflow-y-auto pb-3">
@@ -98,7 +101,7 @@ function TopBar({ page, onMenu }: { page: PageKey; onMenu: () => void }) {
   const title = pageLabel(page)
   const today = new Date().toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
   return (
-    <header className="no-print sticky top-0 z-30 border-b border-line bg-surface">
+    <header className="neo-topbar no-print sticky top-0 z-30 border-b border-line bg-surface">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 sm:px-6">
         <button onClick={onMenu} className={`${btn.secondary} lg:hidden`} aria-label="Open navigation">Menu</button>
         <p className="min-w-0 flex-1 truncate font-mono text-[11px] uppercase tracking-wide text-muted sm:flex-none">
@@ -159,9 +162,9 @@ function Shell() {
           </div>
         </div>
       )}
-      <div className="min-w-0 bg-workspace">
+      <div className="neo-workspace min-w-0 bg-workspace">
         <TopBar page={page} onMenu={() => setMenu(true)} />
-        <main id="main" className="mx-auto max-w-[1320px] px-4 py-6 sm:px-6 lg:px-8">
+        <main id="main" className="neo-main mx-auto max-w-[1320px] px-4 py-6 sm:px-6 lg:px-8">
           {/* keyed by page: each page arrives with a short fade */}
           <div key={page} className="page-in">
             <View />

@@ -62,7 +62,7 @@ export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Prop
 
   return (
     <form
-      className="@container border border-line bg-surface"
+      className="neo-panel @container border border-line bg-surface"
       onSubmit={(e) => {
         e.preventDefault()
         if (ready && !busy) onStart(topic.trim(), maxRounds, hitl, documentIds)

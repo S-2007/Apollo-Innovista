@@ -11,17 +11,17 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 
-  --color-app: #eceef1;        /* application background */
-  --color-workspace: #f5f6f7;  /* workspace background */
-  --color-surface: #ffffff;    /* primary surface */
-  --color-surface-2: #f0f2f4;  /* secondary surface */
-  --color-ink: #111318;        /* primary text */
-  --color-muted: #68717d;      /* secondary text */
-  --color-accent: #4c9aff;     /* primary blue: fills, indicators */
-  --color-accent-strong: #3b82f6;
-  --color-accent-ink: #1f5fc8; /* blue for text on light surfaces */
-  --color-line: rgb(17 19 24 / 0.2);
-  --color-hair: rgb(17 19 24 / 0.1);
+  --color-app: #e8f1f7;        /* application background */
+  --color-workspace: #eef5fb;  /* workspace background */
+  --color-surface: #fbfdff;    /* primary surface */
+  --color-surface-2: #e4eff5;  /* secondary surface */
+  --color-ink: #10203b;        /* primary text */
+  --color-muted: #607087;      /* secondary text */
+  --color-accent: #d5f8f1;     /* mint action and selection */
+  --color-accent-strong: #82dfcf;
+  --color-accent-ink: #087b6c; /* teal for text on light surfaces */
+  --color-line: #10203b;
+  --color-hair: rgb(16 32 59 / 0.22);
   --color-warn: #f0b74b;
   --color-warn-ink: #8a5a00;
   --color-err: #ef6673;
@@ -38,7 +38,7 @@
     @apply bg-app font-sans text-ink antialiased;
   }
   ::selection {
-    background: rgb(76 154 255 / 0.25);
+    background: rgb(130 223 207 / 0.4);
   }
   :focus-visible {
     outline: 2px solid var(--color-accent-strong);
@@ -160,4 +160,140 @@
   .no-print { display: none !important; }
   .print-only { display: block !important; }
   a { color: inherit; text-decoration: none; }
+}
+
+/* Neo-brutalist visual layer -------------------------------------------------
+   Presentation only: API, auth, routing, SSE, report and download behavior
+   remain owned by the existing React components. */
+:root {
+  --neo-shadow: 4px 4px 0 var(--color-ink);
+  --neo-shadow-small: 3px 3px 0 var(--color-ink);
+}
+
+body {
+  background: #eaf3f9;
+}
+
+.neo-workspace {
+  background:
+    radial-gradient(ellipse at 70% 3%, rgb(82 218 211 / 20%) 0, rgb(82 218 211 / 7%) 23%, transparent 46%),
+    radial-gradient(ellipse at 98% 1%, rgb(119 142 239 / 17%) 0, rgb(119 142 239 / 5%) 24%, transparent 44%),
+    linear-gradient(180deg, #f2f7fd 0, var(--color-workspace) 52%, #eaf3f9 100%);
+  isolation: isolate;
+  min-height: 100vh;
+  overflow: hidden;
+  position: relative;
+}
+
+.neo-workspace::before {
+  background:
+    linear-gradient(162deg, transparent 20%, rgb(93 221 214 / 20%) 38%, rgb(111 222 225 / 5%) 50%, transparent 68%),
+    linear-gradient(166deg, transparent 26%, rgb(116 151 237 / 16%) 43%, rgb(164 178 244 / 5%) 54%, transparent 72%);
+  content: "";
+  filter: blur(2px);
+  height: 330px;
+  pointer-events: none;
+  position: absolute;
+  right: -7%;
+  top: 0;
+  transform: rotate(-3deg);
+  width: 94%;
+  z-index: -1;
+}
+
+.neo-main {
+  position: relative;
+  z-index: 1;
+}
+
+.neo-sidebar {
+  overflow: hidden;
+  position: relative;
+}
+
+.neo-sidebar::after {
+  background:
+    radial-gradient(ellipse at 15% 100%, rgb(50 189 207 / 28%) 0 17%, transparent 48%),
+    radial-gradient(ellipse at 80% 108%, rgb(85 133 232 / 20%) 0 18%, transparent 46%);
+  bottom: 52px;
+  clip-path: polygon(0 45%, 22% 28%, 48% 42%, 71% 25%, 100% 39%, 100% 100%, 0 100%);
+  content: "";
+  height: 145px;
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  width: 100%;
+  z-index: 0;
+}
+
+.neo-sidebar > * {
+  position: relative;
+  z-index: 1;
+}
+
+.neo-brand-mark {
+  align-items: center;
+  background: var(--color-accent);
+  border: 2px solid var(--color-ink);
+  box-shadow: var(--neo-shadow-small);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 700;
+  height: 40px;
+  justify-content: center;
+  width: 40px;
+}
+
+.neo-topbar {
+  backdrop-filter: blur(14px);
+  background: rgb(251 253 255 / 90%);
+}
+
+.neo-page-title {
+  font-size: clamp(2.1rem, 4vw, 3.5rem);
+}
+
+.neo-panel,
+.neo-report {
+  box-shadow: var(--neo-shadow);
+}
+
+.neo-stat {
+  box-shadow: 2px 2px 0 var(--color-ink);
+}
+
+.neo-button {
+  transition: background-color 160ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.neo-button-primary {
+  box-shadow: var(--neo-shadow-small);
+}
+
+.neo-button-primary:hover:not(:disabled) {
+  background: var(--color-accent-strong);
+}
+
+.neo-button-primary:active:not(:disabled) {
+  box-shadow: 1px 1px 0 var(--color-ink);
+  transform: translate(2px, 2px);
+}
+
+.neo-field {
+  background: rgb(238 245 251 / 88%);
+}
+
+@media (max-width: 640px) {
+  .neo-panel,
+  .neo-report {
+    box-shadow: 3px 3px 0 var(--color-ink);
+  }
+}
+
+@media print {
+  .neo-report {
+    box-shadow: none;
+  }
 }

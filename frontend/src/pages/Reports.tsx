@@ -5,7 +5,7 @@
 // copy. DOCX needs a backend exporter and is marked unavailable.
 
 import { useState, type ReactNode } from 'react'
-import { reportDownloadUrl } from '../api'
+import { isAttached, reportDownloadUrl } from '../api'
 import ReportView from '../components/ReportView'
 import { CATEGORIES, CONFLICT_CHECK_TEXT, conflictCheck, classifyErrors, sourceCategory, ERROR_LABEL, type ErrorKind } from '../insights'
 import { shareUrl } from '../router'
@@ -89,7 +89,7 @@ export default function Reports() {
     const H = ({ n, children }: { n: number; children: ReactNode }) => <h2 className="mt-10 border-b border-line pb-1.5 font-display text-lg font-semibold">{n}. {children}</h2>
 
     return (
-      <article className="border border-line bg-surface px-5 py-8 sm:px-10 print:border-0 print:p-0">
+      <article className="neo-report border border-line bg-surface px-5 py-8 sm:px-10 print:border-0 print:p-0">
         <p className="label">APOLLO research report · {fmtDate(selected.created_at)}</p>
         <h1 className="mt-2 font-display text-[28px] font-semibold leading-tight">{selected.topic}</h1>
         <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted">
@@ -162,7 +162,9 @@ export default function Reports() {
           {(report.references?.length ? report.references : report.sources).map((r) => (
             <li key={r.id} className="grid grid-cols-[3rem_minmax(0,1fr)] gap-2">
               <span className="font-mono text-xs text-accent-ink">[{r.id}]</span>
-              <span className="[overflow-wrap:anywhere]">{r.title || hostOf(r.url)}. <a href={r.url} className="font-mono text-xs text-muted underline">{r.url}</a>{byId.get(r.id)?.extracted_by === 'snippet only' && <em className="text-muted"> (snippet only)</em>}</span>
+              <span className="[overflow-wrap:anywhere]">{r.title || hostOf(r.url)}. {isAttached(r.url)
+                ? <span className="font-mono text-xs text-muted">attached document</span>
+                : <a href={r.url} className="font-mono text-xs text-muted underline">{r.url}</a>}{byId.get(r.id)?.extracted_by === 'snippet only' && <em className="text-muted"> (snippet only)</em>}</span>
             </li>
           ))}
         </ol>
