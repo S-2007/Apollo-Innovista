@@ -76,6 +76,14 @@ export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Prop
           value={topic}
           disabled={busy}
           onChange={(e) => setTopic(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter starts the research (the form's own submit: same checks as the button); Shift+Enter is
+            // a new line, and Enter while an input method is composing a character stays with it.
+            if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return
+            e.preventDefault()
+            e.currentTarget.form?.requestSubmit()
+          }}
+          aria-describedby="topic-hint"
           placeholder="Type your research question, or paste a YouTube link (add a question after it if you like)"
           className={`${field} mt-1.5 resize-none font-display text-[15px]`}
         />
@@ -84,7 +92,7 @@ export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Prop
             <span className="font-medium">YouTube video detected.</span> Apollo reads its transcript (captions, or a Gemini transcription if there are none), then checks the video's claims against independent sources, citing the moment each one is said. If the words cannot be read, the run stops and says why; it never guesses from the title.
           </p>
         ) : (
-          <p className="mt-1 text-[11px] text-muted">3–300 characters. The report uses retrieved sources only; unsupported points say "not found in sources".</p>
+          <p id="topic-hint" className="mt-1 text-[11px] text-muted">3–300 characters. Press Enter to start (Shift+Enter for a new line). The report uses retrieved sources only; unsupported points say "not found in sources".</p>
         )}
 
       </div>
