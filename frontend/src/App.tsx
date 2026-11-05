@@ -74,9 +74,9 @@ function Sidebar({ page, onNavigate }: { page: PageKey; onNavigate: () => void }
                 href={`#/${p.key}`}
                 onClick={onNavigate}
                 aria-current={active ? 'page' : undefined}
-                className={`relative flex items-center gap-3 px-5 py-[7px] text-[13.5px] ${active ? 'bg-accent/10 font-medium text-ink' : 'text-muted hover:bg-surface-2 hover:text-ink'}`}
+                /* mx-2.5 + px-2.5 keeps the text where px-5 put it; the active link becomes a bordered card (index.css) */
+                className={`nav-link relative mx-2.5 flex items-center gap-3 px-2.5 py-[7px] text-[13.5px] ${active ? 'nav-active-card font-medium' : 'text-muted hover:bg-surface-2 hover:text-ink'}`}
               >
-                {active && <span className="nav-marker absolute inset-y-0 left-0 w-[3px] bg-accent-strong" aria-hidden="true" />}
                 <span className="w-4 text-right font-mono text-[10px] text-muted">{String(i + 1).padStart(2, '0')}</span>
                 <Icon d={ICON[p.key]} />
                 <span className="truncate">{p.label}</span>

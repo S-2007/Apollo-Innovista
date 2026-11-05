@@ -170,15 +170,17 @@
   --neo-shadow-small: 3px 3px 0 var(--color-ink);
 }
 
+/* Workspace: a light base with the same wave composition at low strength (cyan 0.06-0.10, periwinkle
+   0.04-0.07), so cards stay distinct and text keeps its contrast. No blur: it costs every scrolled frame. */
 body {
-  background: #eaf3f9;
+  background: #f7fafd;
 }
 
 .neo-workspace {
   background:
-    radial-gradient(ellipse at 70% 3%, rgb(82 218 211 / 20%) 0, rgb(82 218 211 / 7%) 23%, transparent 46%),
-    radial-gradient(ellipse at 98% 1%, rgb(119 142 239 / 17%) 0, rgb(119 142 239 / 5%) 24%, transparent 44%),
-    linear-gradient(180deg, #f2f7fd 0, var(--color-workspace) 52%, #eaf3f9 100%);
+    radial-gradient(ellipse at 70% 3%, rgb(82 218 211 / 10%) 0, rgb(82 218 211 / 4%) 23%, transparent 46%),
+    radial-gradient(ellipse at 98% 1%, rgb(119 142 239 / 7%) 0, rgb(119 142 239 / 2%) 24%, transparent 44%),
+    linear-gradient(180deg, #f7fafd 0, #f7fafd 52%, #f0f7fa 100%);
   isolation: isolate;
   min-height: 100vh;
   overflow: hidden;
@@ -187,10 +189,9 @@ body {
 
 .neo-workspace::before {
   background:
-    linear-gradient(162deg, transparent 20%, rgb(93 221 214 / 20%) 38%, rgb(111 222 225 / 5%) 50%, transparent 68%),
-    linear-gradient(166deg, transparent 26%, rgb(116 151 237 / 16%) 43%, rgb(164 178 244 / 5%) 54%, transparent 72%);
+    linear-gradient(162deg, transparent 20%, rgb(93 221 214 / 8%) 38%, rgb(111 222 225 / 2%) 50%, transparent 68%),
+    linear-gradient(166deg, transparent 26%, rgb(116 151 237 / 6%) 43%, rgb(164 178 244 / 2%) 54%, transparent 72%);
   content: "";
-  filter: blur(2px);
   height: 330px;
   pointer-events: none;
   position: absolute;
@@ -213,8 +214,8 @@ body {
 
 .neo-sidebar::after {
   background:
-    radial-gradient(ellipse at 15% 100%, rgb(50 189 207 / 28%) 0 17%, transparent 48%),
-    radial-gradient(ellipse at 80% 108%, rgb(85 133 232 / 20%) 0 18%, transparent 46%);
+    radial-gradient(ellipse at 15% 100%, rgb(50 189 207 / 10%) 0 17%, transparent 48%),
+    radial-gradient(ellipse at 80% 108%, rgb(85 133 232 / 7%) 0 18%, transparent 46%);
   bottom: 52px;
   clip-path: polygon(0 45%, 22% 28%, 48% 42%, 71% 25%, 100% 39%, 100% 100%, 0 100%);
   content: "";
@@ -247,8 +248,7 @@ body {
 }
 
 .neo-topbar {
-  backdrop-filter: blur(14px);
-  background: rgb(251 253 255 / 90%);
+  background: rgb(251 253 255 / 96%); /* nearly opaque instead of a backdrop blur, which re-renders on every scroll */
 }
 
 .neo-page-title {
@@ -268,17 +268,130 @@ body {
   transition: background-color 160ms ease, box-shadow 120ms ease, transform 120ms ease;
 }
 
-.neo-button-primary {
-  box-shadow: var(--neo-shadow-small);
+/* Primary actions. These rules sit outside Tailwind's layers, so they win over the utility classes in
+   btn.primary without !important. Disabled stays neutral: no mint, no shadow, no press. */
+.neo-button-primary:not(:disabled) {
+  background: #d5f8f1;
+  border-color: #10203b;
+  box-shadow: 3px 3px 0 #10203b;
+  color: #10203b;
 }
 
 .neo-button-primary:hover:not(:disabled) {
-  background: var(--color-accent-strong);
+  background: #baf3e8;
 }
 
 .neo-button-primary:active:not(:disabled) {
-  box-shadow: 1px 1px 0 var(--color-ink);
+  box-shadow: 1px 1px 0 #10203b;
   transform: translate(2px, 2px);
+}
+
+.neo-button-primary:disabled {
+  background: var(--color-surface-2);
+  box-shadow: none;
+  transform: none;
+}
+
+/* Active sidebar link: a bordered mint card. Inactive links keep a transparent border of the same width,
+   so selecting one never shifts the text. Used by the desktop sidebar and the mobile menu (same Sidebar). */
+.nav-link {
+  border: 1.5px solid transparent;
+}
+
+.nav-active-card {
+  background: #d5f8f1;
+  border-color: #10203b;
+  box-shadow: 3px 3px 0 #10203b;
+  color: #10203b;
+  transform: translate(-1px, -1px);
+}
+
+/* the page number and icon go navy too; the live-runs badge (it has an aria-label) keeps its white text */
+.nav-active-card svg,
+.nav-active-card > span:not([aria-label]) {
+  color: #10203b;
+}
+
+/* Research depth: Focused and Deep. Only the selected one gets the mint card and hard shadow. */
+.depth-card {
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-line);
+  transition: background-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.depth-card-selected {
+  background: #d5f8f1;
+  border-color: #10203b;
+  box-shadow: 3px 3px 0 #10203b;
+  color: #10203b;
+  transform: translate(-2px, -2px);
+}
+
+/* Agent cards (AgentStrip): navy border, pale surface, numbered mint strip, status label by state. */
+.agent-status-card {
+  background: #f4fbfa;
+  border: 1.5px solid #10203b;
+}
+
+.agent-number-strip {
+  align-items: flex-start;
+  background: #d5f8f1;
+  border-right: 1.5px solid #10203b;
+  color: #10203b;
+  display: flex;
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  justify-content: center;
+  padding-top: 11px;
+  width: 30px;
+}
+
+.agent-status-label {
+  border: 1px solid var(--color-hair);
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 0 5px;
+  text-transform: uppercase;
+}
+
+.agent-status-active {
+  box-shadow: 3px 3px 0 #10203b;
+}
+
+.agent-status-active .agent-status-label {
+  background: #d5f8f1;
+  border-color: #10203b;
+  color: #10203b;
+}
+
+.agent-status-done .agent-status-label {
+  border-color: var(--color-ok);
+  color: var(--color-ok-ink);
+}
+
+.agent-status-error {
+  border-color: var(--color-err-ink);
+}
+
+.agent-status-error .agent-status-label {
+  border-color: var(--color-err-ink);
+  color: var(--color-err-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-active-card,
+  .depth-card-selected,
+  .neo-button-primary:active:not(:disabled) {
+    transform: none;
+  }
+
+  .depth-card {
+    transition: none;
+  }
 }
 
 .neo-field {
@@ -498,26 +611,6 @@ body {
   font-size: 9px;
   margin-left: 4px;
   padding-left: 10px;
-}
-
-/* Ensure selected controls and enabled primary actions use the intended mint. */
-.neo-sidebar a[aria-current='page'],
-.neo-panel label:has(input[type='radio']:checked) {
-  background: #d5f8f1 !important;
-}
-
-.neo-button-primary:not(:disabled) {
-  background: #d5f8f1 !important;
-}
-
-.neo-button-primary:hover:not(:disabled) {
-  background: #baf3e8 !important;
-}
-
-/* Disabled actions remain neutral so readiness is still clear. */
-.neo-button-primary:disabled {
-  background: var(--color-surface-2) !important;
-  box-shadow: none;
 }
 
 @media (max-width: 640px) {

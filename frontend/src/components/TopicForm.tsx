@@ -94,9 +94,9 @@ export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Prop
           <p id="depth-label" className="label mb-1.5">Research depth</p>
           <div role="radiogroup" aria-labelledby="depth-label" className="flex gap-2">
             {DEPTH.map((o) => (
-              <label key={o.rounds} className={`flex flex-1 cursor-pointer flex-col border px-2.5 py-1.5 ${maxRounds === o.rounds ? 'border-accent-strong bg-accent/10' : 'border-line'} ${busy ? 'opacity-60' : ''}`}>
+              <label key={o.rounds} className={`depth-card flex flex-1 cursor-pointer flex-col px-2.5 py-1.5 ${maxRounds === o.rounds ? 'depth-card-selected' : ''} ${busy ? 'opacity-60' : ''}`}>
                 <span className="flex items-center gap-2 text-sm text-ink">
-                  <input type="radio" name="depth" value={o.rounds} checked={maxRounds === o.rounds} disabled={busy} onChange={() => setMaxRounds(o.rounds)} className="accent-[#3b82f6]" />
+                  <input type="radio" name="depth" value={o.rounds} checked={maxRounds === o.rounds} disabled={busy} onChange={() => setMaxRounds(o.rounds)} className="accent-[#10203b]" />
                   {o.label}
                 </span>
                 <span className="text-[11px] text-muted">{o.hint}</span>
