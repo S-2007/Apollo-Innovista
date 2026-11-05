@@ -6,7 +6,7 @@
 import { useState } from 'react'
 import { isKnown } from '../api'
 import { useStore } from '../store'
-import { Empty, Meter, PageHeader, Panel, Pill, Stat, STOP_REASON, Unavailable, field, fmtInt, fmtMs, fmtSec } from '../ui'
+import { Empty, Meter, PageHeader, Panel, Pill, Stat, STOP_REASON, field, fmtInt, fmtMs, fmtSec } from '../ui'
 
 const STAGE_COLOR: Record<string, string> = {
   planning: 'bg-ink', searching: 'bg-accent-strong', reviewing: 'bg-accent', 'waiting for you': 'bg-muted/40',
@@ -190,7 +190,6 @@ export default function Cost() {
           )}
         </Panel>
       </div>
-      <div className="mt-5"><Unavailable what="Pre-run cost estimate in currency" need="PRICE_<PROVIDER>_INPUT_PER_M / _OUTPUT_PER_M in .env; the time estimate above uses past runs of the same depth." /></div>
     </div>
   )
 }

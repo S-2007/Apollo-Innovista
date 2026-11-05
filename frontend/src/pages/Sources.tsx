@@ -1,14 +1,13 @@
 // Source Intelligence: what the report rests on. Real per-source facts (how the text was
 // obtained, whether it is cited, how claims citing it were verified), a domain-name heuristic
-// for source category, and independence / duplication checks across sources. Scores the
-// backend does not compute (credibility, authority, originality, recency, AI-generated
-// content, circular citations) are listed as unavailable rather than estimated.
+// for source category, and independence / duplication checks across sources. No credibility
+// or authority score is shown: the backend computes none, and none is estimated here.
 
 import { useState } from 'react'
 import type { Source } from '../api'
 import { CATEGORIES, classifyErrors, sourceCategory, type SourceCategory } from '../insights'
 import { useStore } from '../store'
-import { Empty, NeedsRun, PageHeader, Panel, Pill, Segmented, StackedBar, CLAIM_KEYS, STATUS_COLOR, Stat, Unavailable, field, fmtDate, hostOf, pct } from '../ui'
+import { Empty, NeedsRun, PageHeader, Panel, Pill, Segmented, StackedBar, CLAIM_KEYS, STATUS_COLOR, Stat, field, fmtDate, hostOf, pct } from '../ui'
 
 const KEYS = CLAIM_KEYS
 type Sort = 'id' | 'claims' | 'domain'
@@ -78,10 +77,6 @@ export default function Sources() {
               <p className="text-xs text-muted">{(errs.blocked ?? []).length} blocked or paywalled · {(errs.non_html ?? []).length} PDF / non-HTML skipped · {(errs.no_main_text ?? []).length} without main text</p>
             </li>
           </ul>
-          <div className="mt-4 space-y-2">
-            <Unavailable what="Credibility, authority, originality and citation-reliability scores" need="a source-rating model or dataset; the backend returns no score." />
-            <Unavailable what="Publication recency, primary vs secondary, AI-generated content, circular citations" need="page metadata and content analysis the extractor does not perform." />
-          </div>
         </Panel>
       </div>
 

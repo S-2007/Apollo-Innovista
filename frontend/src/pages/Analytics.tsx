@@ -7,7 +7,7 @@ import type { ClaimStatus, RunSummary } from '../api'
 import { useStore } from '../store'
 import {
   BarChart, Empty, Legend, Meter, PageHeader, Panel, Segmented, StackedBar, CLAIM_KEYS, STATUS_COLOR, Stat, STOP_REASON,
-  Unavailable, bucketize, btn, download, field, fmtInt, fmtMs, fmtTime, pct,
+  bucketize, btn, download, field, fmtInt, fmtMs, fmtTime, pct,
 } from '../ui'
 
 const KEYS = CLAIM_KEYS
@@ -132,10 +132,6 @@ export default function Analytics() {
               </div>
             )}
             <p className="px-4 py-2 text-[11px] text-muted">Sessions created before usage metering was added show 0 tokens and searches.</p>
-          </Panel>
-
-          <Panel label="Benchmarks" title="Research platform comparison & rankings">
-            <Unavailable what="Comparison with other research platforms" need="benchmark results for the same topics from other systems, scored the same way. Apollo has no such data, so no ranking is shown." />
           </Panel>
         </div>
       )}

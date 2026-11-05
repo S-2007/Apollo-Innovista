@@ -1,15 +1,13 @@
 // Contradictions: source pairs Hermes found to disagree, side by side with each source's
-// snippet, the disputed claim as Hermes stated it, and the interactive map. The backend does
-// not classify conflicts, so every conflict is "Unclassified" and the five classes are
-// listed as pending. A reader's preferred source is saved in this browser only.
+// snippet and the disputed claim as Hermes stated it. A reader's preferred source is saved in
+// this browser only.
 
 import { useState } from 'react'
 import type { Source } from '../api'
 import { CONFLICT_CHECK_TEXT, conflictCheck } from '../insights'
 import { useStore } from '../store'
-import { Empty, NeedsRun, PageHeader, Panel, Pill, Stat, Unavailable, btn, hostOf } from '../ui'
+import { Empty, NeedsRun, PageHeader, Panel, Pill, Stat, btn, hostOf } from '../ui'
 
-const CLASSES = ['Direct Contradiction', 'Different Methodology', 'Outdated Information', 'Different Context', 'Unresolved Disagreement'] as const
 const PREF_KEY = 'apollo.sourcePreference'
 
 function loadPrefs(): Record<string, string> {
@@ -59,7 +57,7 @@ export default function Contradictions() {
         <Stat label="Unresolved" value={list.filter((_, i) => !prefs[`${runId}:${i}`]).length} sub="no preferred source chosen" />
       </div>
 
-      <div className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="mt-5">
         <Panel label="Conflicting-source detection" title="Side-by-side comparison">
           {!list.length ? <Empty>{check === 'not_checked' ? 'Unknown: the sources were never compared.' : `No conflicts found in sources. ${CONFLICT_CHECK_TEXT[check]}`}</Empty> : (
             <ul className="space-y-4">
@@ -70,7 +68,6 @@ export default function Contradictions() {
                   <li key={i} className="border border-warn/70">
                     <div className="flex flex-wrap items-center gap-2 border-b border-warn/40 bg-warn/10 px-3 py-2">
                       <span className="font-mono text-[11px] text-warn-ink">CONFLICT {i + 1}</span>
-                      <Pill status="unavailable" label="unclassified" />
                       {chosen ? <Pill status="verified" label={`you prefer ${chosen}`} /> : <Pill status="warn" label="unresolved" />}
                     </div>
                     <div className="p-3">
@@ -87,29 +84,7 @@ export default function Contradictions() {
             </ul>
           )}
         </Panel>
-
-        <div className="min-w-0 space-y-5">
-          <Panel label="Classification" title="Conflict types">
-            <ul className="divide-y divide-hair text-sm">
-              {CLASSES.map((k) => <li key={k} className="flex items-center justify-between py-2"><span className="text-ink">{k}</span><span className="font-mono text-xs text-muted">n/a</span></li>)}
-            </ul>
-            <div className="mt-3">
-              <Unavailable what="Automatic conflict classification" need="a type field on each contradiction (Hermes returns source_a, source_b and an explanation only)." />
-            </div>
-          </Panel>
-          <Panel label="Manual source preference" title="How preferences work">
-            <p className="text-xs text-muted">Choosing a preferred source records your judgement in this browser only. It is not sent to the backend and does not change the report.</p>
-          </Panel>
-        </div>
       </div>
-
-      {report.contradictions_html_path && (
-        <div className="mt-5">
-          <Panel label="Source relationships" title="Contradiction map" aside="drag nodes · hover edges" pad={false}>
-            <iframe title="Contradiction map" src={report.contradictions_html_path} className="h-[520px] w-full bg-white" />
-          </Panel>
-        </div>
-      )}
     </div>
   )
 }
