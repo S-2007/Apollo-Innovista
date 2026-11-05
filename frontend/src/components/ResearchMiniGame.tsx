@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { go } from '../router'
 import { useStore } from '../store'
 
 type Pipe = { x: number; gapY: number; passed: boolean }
@@ -271,10 +270,6 @@ export default function ResearchMiniGame({ onClose }: { onClose: () => void }) {
           {status === 'ended' ? 'Restart' : status === 'ready' ? 'Start game' : 'Flap'}
         </button>
       </div>
-
-      <button className="research-game-progress-link" onClick={() => go('live')} type="button">
-        {waiting ? 'Open the approval →' : 'View live research progress →'}
-      </button>
     </aside>
   )
 }
