@@ -150,6 +150,9 @@ SOURCE_CACHE_ENABLED = os.getenv("SOURCE_CACHE_ENABLED", "true").strip().lower()
 SOURCE_CACHE_BUSY_SECONDS = _float("SOURCE_CACHE_BUSY_SECONDS", 5.0)  # SQLite waits this long for a lock
 # Optional: polite-pool e-mail for OpenAlex, and keys that raise the free rate limits. None is required.
 OPENALEX_MAILTO = os.getenv("OPENALEX_MAILTO", "")
+# OpenAlex budgets per day: $0.10 without a key (~100 searches, and keyless search is throttled first when its
+# servers are busy), $1 with a free key. Sent as an Authorization header, never in the URL.
+OPENALEX_API_KEY = os.getenv("OPENALEX_API_KEY", "")
 SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
 NCBI_API_KEY = os.getenv("NCBI_API_KEY", "")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")          # GitHub search: 10 requests/min without, 30 with

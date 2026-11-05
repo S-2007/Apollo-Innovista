@@ -887,3 +887,13 @@ order until one gives a timestamped transcript; "NO_SPEECH" stops at once.
 **Checked live:** the TED talk link with captions blocked: Gemini transcript (13,778 chars), report "Fact check:
 Inside the Mind of a Master Procrastinator", 18 sources, 13 claims (4 verified, 8 partial, 1 contradicted,
 0 unchecked), 451 s; OpenAlex 429s and Groq rate limits took most of that time. `pytest` 213 passed.
+
+## Phase 3.31: OpenAlex 429s (2026-11-05)
+
+**Cause, from OpenAlex's own reply:** keyless use has a $0.10/day budget (headers: 10 credits per search of 1,000,
+so about 100 searches) and "anonymous search is temporarily rate-limited while the search cluster is under elevated
+load"; the 429 asks to wait ~34 s, which the retry policy honoured, adding minutes to a run.
+**Fix:** OPENALEX_API_KEY (free; $1/day budget) is sent as an Authorization header, never in the URL; OpenAlex gets
+one attempt with no retries, so a 429 goes straight to Crossref. `pytest` 214 passed.
+**Checked live with the team's key:** /rate-limit reports a $1/day budget (search costs $0.001); the long questions
+that got 429 without a key returned from OpenAlex in 1.7-4.3 s through the router; no error message carried the key.

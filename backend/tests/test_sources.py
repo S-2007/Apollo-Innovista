@@ -123,26 +123,26 @@ def test_relevance_uses_the_existing_scorer_and_a_domain_override(monkeypatch):
 
 def test_4_http_429_is_retried_then_falls_back(monkeypatch, counted_get):
     calls = counted_get(status=429)
-    install(monkeypatch, "crossref", good)
-    out = router.fetch("academic", Q)
+    install(monkeypatch, "europe_pmc", good)
+    out = router.fetch("health", Q)
     assert len(calls) == config.SEARCH_MAX_RETRIES + 1  # bounded retries on the primary only
-    assert out["source"] == "crossref" and out["log"]["fallback_reason"] == "rate_limit"
+    assert out["source"] == "europe_pmc" and out["log"]["fallback_reason"] == "rate_limit"
 
 
 def test_5_http_500_is_retried_then_falls_back(monkeypatch, counted_get):
     calls = counted_get(status=500)
-    install(monkeypatch, "crossref", good)
-    out = router.fetch("academic", Q)
+    install(monkeypatch, "europe_pmc", good)
+    out = router.fetch("health", Q)
     assert len(calls) == config.SEARCH_MAX_RETRIES + 1
-    assert out["source"] == "crossref" and out["log"]["fallback_reason"] == "server"
+    assert out["source"] == "europe_pmc" and out["log"]["fallback_reason"] == "server"
 
 
 def test_6_timeout_is_retried_then_falls_back(monkeypatch, counted_get):
     calls = counted_get(exc=requests.Timeout("read timed out"))
-    install(monkeypatch, "crossref", good)
-    out = router.fetch("academic", Q)
+    install(monkeypatch, "europe_pmc", good)
+    out = router.fetch("health", Q)
     assert len(calls) == config.SEARCH_MAX_RETRIES + 1
-    assert out["source"] == "crossref" and out["log"]["fallback_reason"] == "timeout"
+    assert out["source"] == "europe_pmc" and out["log"]["fallback_reason"] == "timeout"
 
 
 def test_7_fallback_success_is_live_and_cached(monkeypatch):
@@ -531,3 +531,20 @@ def test_guardian_returns_full_article_text_and_falls_back_without_a_key(monkeyp
     monkeypatch.setattr(adapters.web, "_tavily", lambda q, topic="general": good(q))
     out = router.fetch("news", "climate summit agreement")
     assert out["source"] == "tavily_news" and out["log"]["primary_status"] == "not_configured"
+
+
+def test_openalex_429_is_not_retried_and_the_key_goes_in_a_header(monkeypatch):
+    seen = []
+
+    def fake_get(url, params=None, headers=None, **kwargs):
+        seen.append((params, headers))
+        resp = http(429)
+        resp.headers["Retry-After"] = "34"
+        return resp
+    monkeypatch.setattr(adapters.requests, "get", fake_get)
+    install(monkeypatch, "crossref", good)
+    monkeypatch.setattr(config, "OPENALEX_API_KEY", "OA-SECRET")
+    out = router.fetch("academic", Q)
+    assert len(seen) == 1 and out["source"] == "crossref"  # no 34 s wait: straight to the fallback
+    params, headers = seen[0]
+    assert headers == {"Authorization": "Bearer OA-SECRET"} and "OA-SECRET" not in str(params)

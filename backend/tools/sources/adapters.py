@@ -60,12 +60,15 @@ def abstract_from_inverted_index(index: dict | None) -> str:
     return " ".join(slots[p] for p in sorted(slots))
 
 
-@_retry
+# One attempt, no retries: OpenAlex's 429 asks to wait ~30 s (measured: 34 s), and honouring that with retries
+# cost minutes per run. Failing fast hands the query to Crossref at once; with OPENALEX_API_KEY 429s are rare.
+@with_retries(0)
 def openalex(query: str) -> list[dict]:
     params = {"search": query, "per_page": config.RESULTS_PER_QUERY}
     if config.OPENALEX_MAILTO:
         params["mailto"] = config.OPENALEX_MAILTO
-    works = _get("https://api.openalex.org/works", **params).json().get("results", [])
+    headers = {"Authorization": f"Bearer {config.OPENALEX_API_KEY}"} if config.OPENALEX_API_KEY else None
+    works = _get("https://api.openalex.org/works", headers=headers, **params).json().get("results", [])
     out = []
     for w in works:
         url = w.get("doi") or (w.get("primary_location") or {}).get("landing_page_url") or w.get("id") or ""
