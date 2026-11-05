@@ -928,3 +928,12 @@ still, correctly, not found. **UI text fixed:** the topic form and the report me
 is the only source. `pytest` 216 passed.
 **Seen, not fixed:** the test PDF says on its first line that it is not a real study, and the report cited it as a
 trial without saying so; one meta sentence ("The sections below summarise ...") was checked as a claim.
+
+## Phase 3.34: Render deploy checked; stricter tech routing (2026-11-05)
+
+Render (apollo-innovista.onrender.com) served the same build files as commit a76d469. Signed in by the owner:
+/api/system reported Gemini, Groq, Serper and Tavily keys set and a Postgres database. One live run (Focused, a UN
+climate summit question): complete in 119 s, 20 sources (14 Tavily, 6 Guardian with full text, so GUARDIAN_API_KEY
+is set there), 11 claims (7 verified, 3 partial, 1 not found, 0 unchecked). A sub-question with "frameworks" was
+routed to the tech domain and found nothing; tech routing now needs software-specific words ("framework",
+"library", "code" and "bug" dropped). `pytest` 217 passed. Academic and health keys on Render not yet exercised.

@@ -561,3 +561,12 @@ def test_pubmed_200_with_a_backend_error_is_an_outage_not_no_papers(monkeypatch)
     out = router.fetch("health", "Does brisk walking lower blood pressure?")
     assert out["source"] == "europe_pmc" and out["log"]["fallback_reason"] == "server"
     assert len(terms_sent) == 2 and len(set(terms_sent)) == 1  # one retry, no word-dropping on an outage
+
+
+def test_ordinary_words_do_not_route_to_tech():
+    """Seen live on Render: a climate sub-question with "frameworks" was sent to GitHub and Stack Overflow."""
+    assert router.classify("What mechanisms or frameworks (e.g., carbon markets) did the summit agree?") != "tech"
+    assert router.classify("Is the public library system underfunded?") != "tech"
+    assert router.classify("Which bug species spread crop disease?") != "tech"
+    assert router.classify("How do I fix a Python import error?") == "tech"
+    assert router.classify("Which open-source SDK handles PDF parsing?") == "tech"

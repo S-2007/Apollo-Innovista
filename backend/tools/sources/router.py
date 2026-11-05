@@ -55,9 +55,11 @@ _DOMAIN_WORDS: list[tuple[str, re.Pattern]] = [
         r"drugs?|vaccines?|cancer|diabetes|blood pressure|hypertension|infections?|virus(es)?|covid|"
         r"mental health|depression|anxiety|obesity|nutrition|diet|dose|dosage|hospital|mortality)\b", re.I)),
     ("tech", re.compile(
-        r"\b(python|javascript|typescript|java|rust|golang|c\+\+|programming|code|coding|software|library|"
-        r"libraries|framework|frameworks|api|apis|sdk|github|open[- ]source|bug|compiler|docker|kubernetes|"
-        r"react|database|sql|devops|llms?|langchain|langgraph)\b", re.I)),
+        # Only words that mean software: "framework", "library", "code" and "bug" were left out on purpose (seen live:
+        # "What mechanisms or frameworks ..." of a climate question was sent to GitHub and Stack Overflow).
+        r"\b(python|javascript|typescript|java|rust|golang|c\+\+|programming|source code|coding|software|"
+        r"javascript library|python library|api|apis|sdk|github|open[- ]source|compiler|docker|kubernetes|"
+        r"react\.?js|sql|devops|llms?|langchain|langgraph|npm|pip install)\b", re.I)),
     ("statistics", re.compile(
         r"\b(gdp|inflation|unemployment|population|poverty|statistics|statistical|per capita|census|"
         r"exports?|imports?|trade deficit|public debt|interest rates?|economy|economic|economies|growth rate|"
