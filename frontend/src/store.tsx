@@ -42,7 +42,7 @@ export interface Store {
   pausing: boolean
   /** Resume a paused run: the same run carries on from where it stopped. */
   unpause: () => Promise<void>
-  /** Stop & edit topic: pause the run (unless it already waits for approval) and open the topic editor. */
+  /** Stop & Edit: pause the run (unless it already waits for approval) and open the topic editor. */
   openEdit: () => Promise<void>
   /** True while the topic editor is open for the selected run. */
   editing: boolean

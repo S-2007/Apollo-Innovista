@@ -1,5 +1,5 @@
-// Stop & edit topic, while a run works (Live Report). One button, two ways out:
-//   Stop & edit topic: the run PAUSES after its current step (POST /pause; nothing is cut short) and an
+// Stop & Edit, while a run works (Live Report). One button, two ways out:
+//   Stop & Edit: the run PAUSES after its current step (POST /pause; nothing is cut short) and an
 //     editor opens with the topic. A run already waiting for approval is not paused: it is waiting anyway.
 //   Resume: no edit after all. The SAME run carries on with its old topic (POST /continue): plan, sources
 //     and progress kept, nothing starts over.
@@ -29,9 +29,9 @@ export default function PauseEditPanel() {
   if (busy && !editing) {
     return (
       // The button comes first (left): the floating game panel sits on the right and could cover it there.
-      <div className="mb-5 flex flex-wrap items-center gap-3 border border-line bg-surface px-4 py-3" role="region" aria-label="Stop and edit topic">
+      <div className="mb-5 flex flex-wrap items-center gap-3 border border-line bg-surface px-4 py-3" role="region" aria-label="Stop and edit">
         <button type="button" onClick={openEdit} disabled={stopping} className={btn.secondary}>
-          {stopping ? 'Stopping…' : 'Stop & edit topic'}
+          {stopping ? 'Stopping…' : 'Stop & Edit'}
         </button>
         <p className="min-w-0 flex-1 text-sm text-ink">
           Need to change the question? The research pauses while you edit; resume it if you change your mind.
