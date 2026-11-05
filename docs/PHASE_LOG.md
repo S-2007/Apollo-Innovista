@@ -910,3 +910,21 @@ is refused with 400). PubMed's search backend was still failing: 500s, and also 
 That answer now raises PubMedBackendError (treated as a 502: one retry, then Europe PMC). Two bursts of 5 health
 searches: 10/10 answered by Europe PMC in 10-18 s, no 429 (one 429 before the key), key in no error message.
 PubMed results with the key are not yet confirmed: its backend never answered during the check. `pytest` 215 passed.
+
+## Phase 3.33: full end-to-end check of every feature (2026-11-05)
+
+Server on a throwaway SQLite database, driven like the UI. **Run 1**, "Does regular walking lower blood
+pressure?", Deep, human approval on, test PDF attached: upload read 3 pages, a .pptx refused with the reason;
+the plan paused and resumed on approval; Hermes judged coverage complete after round 1 (stop_reason
+hermes_complete, so no gap approval); 220 s, 15 sources (PDF S1, 7 primary), 19 claims (11 verified, 7 partial,
+1 not found, 0 unchecked), 16 passages carry PDF page numbers; PubMed (500) and Europe PMC (503) were both down,
+so health added nothing and the run went on with web sources. **Run 2**, the TED talk link: captions read,
+161 s, 22 sources, 15 claims (5 verified, 8 partial, 1 contradicted, 1 not found, 0 unchecked), 41 passages carry
+video times. All 9 endpoints answered 200 for both runs; all 10 pages rendered with data and no errors.
+**Verifier bug found and fixed:** 3 of the 4 quotes rejected in these runs were real quotes written with a
+non-breaking hyphen (U+2011) where the source has "-"; `quote_in` now treats every dash variant as "-". Rechecked
+on the same runs: those 3 quotes are now found (run 1's C5 would be verified, not "not found"); the fourth is
+still, correctly, not found. **UI text fixed:** the topic form and the report methodology no longer say web search
+is the only source. `pytest` 216 passed.
+**Seen, not fixed:** the test PDF says on its first line that it is not a real study, and the report cited it as a
+trial without saying so; one meta sentence ("The sections below summarise ...") was checked as a claim.

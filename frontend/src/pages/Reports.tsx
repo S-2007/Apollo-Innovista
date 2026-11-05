@@ -103,7 +103,7 @@ export default function Reports() {
 
         <H n={2}>Research methodology</H>
         <ul className="mt-3 max-w-[72ch] list-disc space-y-1 pl-5 text-[15px] leading-7">
-          <li>Apollo split the question into {report.plan?.length ?? 0} sub-questions; Athena searched the open web (Tavily, Serper fallback) and extracted page text.</li>
+          <li>Apollo split the question into {report.plan?.length ?? 0} sub-questions; Athena searched the open web (Tavily, Serper fallback), added specialist sources where a sub-question called for them (papers, medical literature, statistics, news, code), and extracted page text.</li>
           <li>Hermes reviewed coverage after each round; {report.rounds ?? selected.rounds} of at most {selected.max_rounds} round{selected.max_rounds === 1 ? '' : 's'} ran{selected.hitl ? ', with human approval of the plan and follow-up queries' : ''}.</li>
           <li>Each section was written only from retrieved passages; uncited sentences were removed ({(errs.uncited_dropped ?? []).length} this run).</li>
           <li>Claims were checked against source sentences (embeddings + LLM, chain {system?.llm.verify_chain.join(' → ') ?? 'n/a'}).</li>

@@ -114,9 +114,9 @@ export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Prop
         <div className="bg-surface p-4">
           <label htmlFor="src-pref" className="label">Source preference</label>
           <select id="src-pref" disabled className={`${field} mt-1.5 py-1.5`} aria-describedby="src-pref-note">
-            <option>Open web (Tavily, Serper fallback)</option>
+            <option>Open web + specialist sources, by topic</option>
           </select>
-          <p id="src-pref-note" className="mt-1 text-[11px] text-muted">Only option the backend supports; academic-only or domain filters need a search-filter API field.</p>
+          <p id="src-pref-note" className="mt-1 text-[11px] text-muted">Web search (Tavily, Serper fallback) always runs; papers, medical literature, statistics, news or code sources are added when a sub-question is about them.</p>
         </div>
         <div className="bg-surface p-4">
           <label htmlFor="agent-count" className="label">Agents</label>

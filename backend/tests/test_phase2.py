@@ -515,3 +515,15 @@ def test_gemini_error_classification():
     assert is_quota_exhausted(per_day) and not is_transient(per_day)
     assert not is_transient(not_found)  # a missing model is never retried
     assert is_transient(server)
+
+
+def test_quote_check_treats_every_dash_as_a_hyphen():
+    """Seen live: models wrote a non-breaking hyphen (U+2011) where the source has "-", so a real quote was refused."""
+    from verify.claims import quote_in
+
+    source = "The primary evaluation found moderate-certainty evidence that walking lowered systolic blood pressure (MD = -4.1 mm Hg)."
+    assert quote_in("moderate‑certainty evidence that walking lowered systolic", source)
+    assert quote_in("moderate–certainty evidence", source)  # en dash
+    assert quote_in("(MD = −4.1 mm Hg)", source)              # minus sign
+    assert quote_in("moder­ate-certainty", source)            # soft hyphen
+    assert not quote_in("high-certainty evidence", source)         # different words still fail

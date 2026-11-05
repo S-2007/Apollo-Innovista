@@ -245,8 +245,15 @@ def _checked_part(part: dict, by_label: dict, by_id: dict) -> dict:
     return out
 
 
+# Models often write a non-breaking hyphen (U+2011) or an en dash where the source has "-" ("moderate\u2011certainty"),
+# or a minus sign (U+2212) for "-": every such dash counts as "-", and a soft hyphen as nothing. Seen live: 3 of 4
+# rejected quotes in two runs were real quotes, refused only for their dashes.
+_DASHES = str.maketrans({c: "-" for c in "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe63\uff0d"} | {"\u00ad": None})
+
+
 def _norm(text: str) -> str:
-    text = text.lower().replace("\u2019", "'").replace("\u2018", "'").replace("\u201c", '"').replace("\u201d", '"')
+    text = text.lower().translate(_DASHES)
+    text = text.replace("\u2019", "'").replace("\u2018", "'").replace("\u201c", '"').replace("\u201d", '"')
     return re.sub(r"\s+", " ", re.sub(r"[^\w%.,;:'\"()-]+", " ", text)).strip()
 
 
