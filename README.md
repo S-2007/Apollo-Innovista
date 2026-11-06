@@ -443,7 +443,7 @@ flowchart TB
 `*` pauses only when human approval is switched on.
 
 **Stop rules, in code** (`decide`, first match wins): Hermes judged the sources complete and the coverage target
-is met; 2 rounds done; the 180 s research time limit reached; you skipped the gap queries; no new follow-up queries.
+is met; 2 rounds done; the 300 s research time limit reached; you skipped the gap queries; no new follow-up queries.
 
 | Agent | Node(s) | Job |
 |---|---|---|
@@ -710,7 +710,7 @@ All settings live in `.env` at the repository root and have safe defaults (`back
 | Variable | Default | Purpose |
 |---|---|---|
 | `MAX_ROUNDS` | `2` | Research rounds (the API caps this at 2) |
-| `TIMEOUT_SECONDS` | `180` | Research time budget per run |
+| `TIMEOUT_SECONDS` | `300` | Research time budget per run: after it no new search round starts; writing and verification still run |
 | `REQUEST_TIMEOUT_SECONDS` | `15` | Per HTTP request |
 | `SEARCH_MAX_RETRIES`, `LLM_MAX_RETRIES` | `2` | Retries on transient errors |
 | `SEARCH_WORKERS` | `5` | Searches at once |

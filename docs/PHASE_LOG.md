@@ -1001,3 +1001,11 @@ video_max_seconds.
 **Checked live:** the same lecture with captions forced to fail: Gemini on the first 20 min took 27 s (22.7k
 characters), 30 min 38 s (33.8k), 35 min 43 s (39.9k), 45 min 329 s. In the browser the lecture's link opened the
 pop-up (1 h 46 min) on desktop and phone without starting a run; a short video went straight to the start request.
+
+## Phase 3.39: research time limit 300 s (2026-11-06)
+
+**Changed:** TIMEOUT_SECONDS 180 -> 300 (config default, .env.example, README). The limit only decides whether another
+search round starts; writing and claim verification always run. In local Deep runs the first review came 45-131 s
+after the start, so 180 s was enough for plain topics; a YouTube topic spends about 45 s reading the video first,
+and slower Render runs (rate-limit waits) could pass 180 s before the first review, losing the second round.
+Topics that finish in one round are unchanged: Hermes' "complete" still stops the run.

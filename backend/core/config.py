@@ -102,7 +102,7 @@ VERIFY_CHAIN = [
 
 # --- Loop control (the graph enforces these in code) ---
 MAX_ROUNDS = _int("MAX_ROUNDS", 2)
-TIMEOUT_SECONDS = _int("TIMEOUT_SECONDS", 180)
+TIMEOUT_SECONDS = _int("TIMEOUT_SECONDS", 300)  # research clock: no new search round starts after this (writing still runs)
 SEARCH_MAX_RETRIES = _int("SEARCH_MAX_RETRIES", 2)
 LLM_MAX_RETRIES = _int("LLM_MAX_RETRIES", 2)
 REQUEST_TIMEOUT_SECONDS = _int("REQUEST_TIMEOUT_SECONDS", 15)
