@@ -1,13 +1,12 @@
 // Analytics: research activity and quality across sessions, filtered by date range and
-// shown per day / week / month. Everything is computed from GET /api/runs. Category
-// filters and platform comparisons need data the backend does not have, so they say so.
+// shown per day / week / month. Everything is computed from GET /api/runs.
 
 import { useState, type ReactNode } from 'react'
 import type { ClaimStatus, RunSummary } from '../api'
 import { useStore } from '../store'
 import {
   BarChart, Empty, Legend, Meter, PageHeader, Panel, Segmented, StackedBar, CLAIM_KEYS, STATUS_COLOR, Stat, STOP_REASON,
-  bucketize, btn, download, field, fmtInt, fmtMs, fmtTime, pct,
+  bucketize, btn, download, fmtInt, fmtMs, fmtTime, pct,
 } from '../ui'
 
 const KEYS = CLAIM_KEYS
@@ -54,12 +53,6 @@ export default function Analytics() {
         <Segmented<Range> label="Date range" value={range} onChange={setRange} options={[{ value: '7d', label: '7D' }, { value: '30d', label: '30D' }, { value: '90d', label: '90D' }, { value: 'all', label: 'All' }]} />
         <button className={btn.secondary} disabled={!inRange.length} onClick={() => download(`apollo-analytics-${range}.csv`, toCsv(inRange), 'text/csv')}>Export CSV</button>
       </PageHeader>
-
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <label htmlFor="cat" className="label">Category</label>
-        <select id="cat" disabled className={`${field} w-auto py-1`} aria-describedby="cat-note"><option>All categories</option></select>
-        <span id="cat-note" className="text-[11px] text-muted">Sessions have no category field in the API, so this filter is unavailable.</span>
-      </div>
 
       {!inRange.length ? <Panel><Empty>No research sessions in this date range.</Empty></Panel> : (
         <div className="space-y-5">
