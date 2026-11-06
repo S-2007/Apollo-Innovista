@@ -269,10 +269,7 @@
   }
 }
 
-/* Theme toggle (bulb) in the top bar: lit (amber) while the dark theme is on. */
-.theme-toggle {
-  padding-inline: 0.5rem;
-}
+/* Theme toggle in the top bar: moon + "Dark" in light, sun + "Light" in dark; the sun is amber. */
 .theme-toggle[aria-pressed='true'] svg {
   color: #efbd55;
 }

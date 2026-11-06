@@ -1026,3 +1026,11 @@ computed colours in dark: textarea rgba(7,19,31,.78), cards #0C1B29, selected de
 with #E9F7F5 text, disabled Initiate research #15293A with #7F92A3 text; Dashboard, Claims (graph, filters, list),
 Reports, Analytics, Live Report with the approval panel and the mini-game (start, flap, minimize) all readable;
 375 px phone: no horizontal scroll. Element positions are the same in both themes.
+
+## Phase 3.41: clearer theme toggle (2026-11-06)
+
+**Changed:** the 16 px bulb icon was easy to miss. The toggle now shows the theme it switches to: a moon and "Dark"
+in the light theme, an amber sun and "Light" in the dark theme. Phones show the icon alone, so the top bar keeps
+its rows. aria-label, aria-pressed and the tooltip are unchanged.
+**Checked (production build):** 1024 px: the toggle is 80 px wide on the session row, no overflow; 375 px: icon
+only (42 px), no horizontal scroll; both icons render and the theme still switches and is saved.
