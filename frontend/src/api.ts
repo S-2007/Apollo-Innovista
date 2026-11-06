@@ -418,6 +418,31 @@ export const getDemoTopics = () => request<DemoTopic[]>('/api/demo-topics')
 
 export const eventsUrl = (runId: string) => `/api/runs/${runId}/events`
 export const reportDownloadUrl = (runId: string) => `/api/runs/${runId}/report.md`
+export const reportDocxUrl = (runId: string) => `/api/runs/${runId}/report.docx`
+
+// ------------------------------------------------------------------ public share links
+// The owner turns a read-only link on or off; anyone with the link can read that one report without signing in.
+
+export const getShare = (runId: string) => request<{ token: string | null }>(`/api/runs/${runId}/share`)
+export const createShare = (runId: string) => request<{ token: string }>(`/api/runs/${runId}/share`, post({}))
+export const deleteShare = (runId: string) => request<{ ok: boolean }>(`/api/runs/${runId}/share`, { method: 'DELETE' })
+
+/** A shared report: only what the report shows (no errors, logs or usage). */
+export interface SharedReport {
+  topic: string
+  created_at: number
+  status?: string
+  stop_reason?: string
+  markdown: string
+  references?: { id: string; title: string; url: string }[]
+  sources: Source[]
+  verification: Claim[]
+  plan?: string[]
+}
+
+export const getShared = (token: string) => request<SharedReport>(`/api/shared/${encodeURIComponent(token)}`)
+export const sharedMdUrl = (token: string) => `/api/shared/${encodeURIComponent(token)}/report.md`
+export const sharedDocxUrl = (token: string) => `/api/shared/${encodeURIComponent(token)}/report.docx`
 
 // ------------------------------------------------------------------ accounts
 // The session is a JWT in an HttpOnly cookie set by the backend; this code never sees the token.

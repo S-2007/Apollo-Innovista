@@ -969,3 +969,19 @@ on the Live Report, Pause/Resume in the game; "stopped_by_user" now reads "Stopp
 (slow because the embedding model was loading after the server restart), then paused at 48%; no progress for 15 s;
 Resume continued the same run at "writing 2/5 sections" (58%) and it completed: 1 plan event, paused -> resumed
 (39 s) -> report_ready, 5 sections, 19 sources, 23 claims. `pytest` 229 passed (5 new).
+
+## Phase 3.37: DOCX export and public share links (2026-11-06)
+
+**Built:** Final Reports' DOCX button was a disabled placeholder; GET /api/runs/{id}/report.docx now builds a Word
+file from the stored state (reports/docx_export.py, python-docx 1.2.0): report headings, paragraphs and lists,
+references, and the claim verification table. The Share link only opened for the report's owner (runs are
+private). It now makes a public read-only link: POST /api/runs/{id}/share stores a random token
+(secrets.token_urlsafe(32)) in the new runs.share_token column, DELETE turns it off, and #/shared/<token> opens
+the report with no sign-in, through GET /api/shared/{token} (plus /report.md and /report.docx). The shared view
+has only the report, claims and citations: no errors, logs, usage or other runs. The run's own saves never write
+share_token, so a later save cannot turn a link off. When the browser refuses the clipboard, the copy falls back to
+the older copy command, and the link also shows in a read-only text box.
+**Checked live (test database):** DOCX download 200 (41 KB, 42 paragraphs, 1 table); shared link opened in a
+signed-out browser; an unknown token shows "This link is not valid or has been turned off"; Turn off link made
+the old link return 404; the pane refused navigator.clipboard and the fallback copied the link. `pytest` 234 passed
+(5 new in test_share_docx.py).

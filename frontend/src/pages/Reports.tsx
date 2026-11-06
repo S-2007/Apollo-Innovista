@@ -1,14 +1,14 @@
 // Final Reports: the selected run's report as a structured research document: summary,
 // methodology, plan, findings (the cited report text), claim-by-claim evidence, source
 // analysis, contradictions, unverified findings, limitations, conclusions and citations.
-// Exports: Markdown (backend /report.md), PDF (browser print of this page), shareable link,
-// copy. DOCX needs a backend exporter and is marked unavailable.
+// Exports: Markdown (backend /report.md), Word (backend /report.docx), PDF (browser print of this page),
+// a public read-only share link (backend /share: anyone with the link can read this one report), copy.
 
-import { useState, type ReactNode } from 'react'
-import { isAttached, reportDownloadUrl } from '../api'
+import { useEffect, useState, type ReactNode } from 'react'
+import { createShare, deleteShare, getShare, isAttached, reportDocxUrl, reportDownloadUrl } from '../api'
 import ReportView from '../components/ReportView'
 import { CATEGORIES, CONFLICT_CHECK_TEXT, conflictCheck, classifyErrors, sourceCategory, ERROR_LABEL, type ErrorKind } from '../insights'
-import { shareUrl } from '../router'
+import { sharedUrl } from '../router'
 import { useStore } from '../store'
 import { Empty, NeedsRun, PageHeader, Panel, Pill, STOP_REASON, btn, fmtDate, fmtMs, fmtTime, hostOf } from '../ui'
 
@@ -25,15 +25,68 @@ export default function Reports() {
   const { runs, runId, select, report, busy, selected, metrics, system } = useStore()
   const [copied, setCopied] = useState<string | null>(null)
   const withReport = runs.filter((r) => r.has_report)
+  // The selected run's public link token: undefined while unknown, null when the link is off.
+  const [share, setShare] = useState<string | null | undefined>(undefined)
+  const [sharing, setSharing] = useState(false)
+
+  useEffect(() => {
+    setShare(undefined)
+    if (!runId || !report) return
+    let live = true
+    getShare(runId).then((r) => live && setShare(r.token)).catch(() => live && setShare(null))
+    return () => {
+      live = false
+    }
+  }, [runId, report])
 
   const copy = async (what: string, text: string) => {
     try {
       await navigator.clipboard.writeText(text)
       setCopied(what)
     } catch {
-      setCopied('Copy failed: clipboard not available')
+      // The async clipboard can be refused (page not focused, permission blocked): try the older copy command.
+      const area = document.createElement('textarea')
+      area.value = text
+      area.setAttribute('readonly', '')
+      area.style.position = 'fixed'
+      area.style.opacity = '0'
+      document.body.appendChild(area)
+      area.select()
+      const ok = document.execCommand('copy')
+      area.remove()
+      setCopied(ok ? what : 'Could not copy automatically: select the text and copy it yourself')
     }
     window.setTimeout(() => setCopied(null), 2500)
+  }
+
+  const shareLink = async () => {
+    if (!runId) return
+    setSharing(true)
+    try {
+      const { token } = await createShare(runId)
+      setShare(token)
+      await copy('Public link copied: anyone with it can read this report', sharedUrl(token))
+    } catch (e) {
+      setCopied(e instanceof Error ? `Share failed: ${e.message}` : 'Share failed')
+      window.setTimeout(() => setCopied(null), 4000)
+    } finally {
+      setSharing(false)
+    }
+  }
+
+  const stopSharing = async () => {
+    if (!runId) return
+    setSharing(true)
+    try {
+      await deleteShare(runId)
+      setShare(null)
+      setCopied('Link turned off: it no longer opens the report')
+    } catch (e) {
+      setCopied(e instanceof Error ? `Could not turn the link off: ${e.message}` : 'Could not turn the link off')
+    } finally {
+      setSharing(false)
+      window.setTimeout(() => setCopied(null), 3000)
+    }
   }
 
   return (
@@ -44,14 +97,29 @@ export default function Reports() {
             <>
               <a href={reportDownloadUrl(runId)} download className={btn.primary}>Markdown</a>
               <button className={btn.secondary} onClick={() => window.print()}>PDF (print)</button>
-              <button className={btn.secondary} disabled title="Needs a DOCX exporter in the backend">DOCX</button>
-              <button className={btn.secondary} onClick={() => copy('Link copied', shareUrl('reports', runId))}>Share link</button>
+              <a href={reportDocxUrl(runId)} download className={btn.secondary}>DOCX</a>
+              <button className={btn.secondary} onClick={() => void shareLink()} disabled={sharing}>{share ? 'Copy share link' : 'Share link'}</button>
+              {share && <button className={btn.secondary} onClick={() => void stopSharing()} disabled={sharing}>Turn off link</button>}
               <button className={btn.secondary} onClick={() => copy('Markdown copied', report.markdown)}>Copy text</button>
             </>
           )}
         </PageHeader>
         {copied && <p role="status" className="-mt-3 mb-4 font-mono text-xs text-ok-ink">{copied}</p>}
-        {report && <p className="-mt-2 mb-4 text-[11px] text-muted">The share link opens this report on this machine's APOLLO server; there is no public hosting. DOCX needs a backend exporter (not available).</p>}
+        {report && <p className="-mt-2 mb-4 text-[11px] text-muted">{share
+          ? 'Public link is on: anyone with it can read this report (read-only, no sign-in). Turn it off to stop the link working.'
+          : 'Share link makes a public read-only link to this report: anyone with it can read it without signing in. You can turn it off any time.'}</p>}
+        {report && share && (
+          <div className="-mt-2 mb-4 flex max-w-[720px] items-center gap-2">
+            <label htmlFor="share-url" className="label shrink-0">Public link</label>
+            <input
+              id="share-url"
+              readOnly
+              value={sharedUrl(share)}
+              onFocus={(e) => e.currentTarget.select()}
+              className="min-w-0 flex-1 border border-line bg-surface px-2 py-1 font-mono text-[11px] text-ink focus:border-accent-strong focus:outline-none"
+            />
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">

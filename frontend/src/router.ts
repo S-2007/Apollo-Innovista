@@ -41,6 +41,15 @@ export const go = (page: PageKey) => {
 export const shareUrl = (page: PageKey, runId: string) =>
   `${window.location.origin}${window.location.pathname}#/${page}?run=${encodeURIComponent(runId)}`
 
+/** The token of a public read-only report link (#/shared/<token>), or null. */
+export const sharedToken = (): string | null => {
+  const m = window.location.hash.match(/^#\/shared\/([A-Za-z0-9_-]+)/)
+  return m?.[1] ?? null
+}
+
+/** Absolute public link to a shared report: opens without signing in. */
+export const sharedUrl = (token: string) => `${window.location.origin}${window.location.pathname}#/shared/${token}`
+
 export function useRoute(): PageKey {
   const [page, setPage] = useState<PageKey>(() => parse().page)
   useEffect(() => {

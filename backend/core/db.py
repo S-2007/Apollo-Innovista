@@ -8,7 +8,7 @@ Two tables:
          from this row, so the server keeps no state on local disk that matters.
 
 The same SQLAlchemy Core code runs on both databases; tables are created on first use, and columns added
-since (runs.server, runs.heartbeat) are added to an existing table, so older rows and older servers still work.
+since (runs.server, runs.heartbeat, runs.share_token) are added to an existing table, so older rows and older servers still work.
 Neon gives URLs like postgresql://user:pass@host/db?sslmode=require; they are used as-is
 (only the scheme is pointed at the psycopg 3 driver). The URL is read from .env, never logged.
 """
@@ -50,10 +50,13 @@ runs = Table(
     # when its own server has gone quiet, not merely because it is "running". NULL: saved by an older server.
     Column("server", String(64)),
     Column("heartbeat", BigInteger),
+    # Public read-only link to the finished report (POST /api/runs/{id}/share); NULL = not shared.
+    # Written only by the share endpoints, never by the run's own saves, so a save cannot undo a share.
+    Column("share_token", String(64), unique=True),
 )
 
 # Columns added after the first release, as (name, SQL type): created on an existing table by engine().
-_ADDED_COLUMNS = {"runs": [("server", "VARCHAR(64)"), ("heartbeat", "BIGINT")]}
+_ADDED_COLUMNS = {"runs": [("server", "VARCHAR(64)"), ("heartbeat", "BIGINT"), ("share_token", "VARCHAR(64)")]}
 
 _lock = threading.Lock()
 _engine: Engine | None = None

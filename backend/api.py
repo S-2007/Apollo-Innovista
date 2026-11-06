@@ -17,6 +17,9 @@ to the browser as Server-Sent Events. Endpoints:
   POST /api/runs/{id}/restart        a new run with an edited topic {topic} and the old run's settings and documents
   GET  /api/runs/{id}/report         report markdown, sources, verification, conflicts
   GET  /api/runs/{id}/report.md      download the exported Markdown report
+  GET  /api/runs/{id}/report.docx    download the report as a Word document
+  GET|POST|DELETE /api/runs/{id}/share  the run's public read-only link: read, turn on, turn off
+  GET  /api/shared/{token}           a shared report, read-only, no sign-in (also /report.md, /report.docx)
   GET  /api/runs/{id}/contradictions        the pyvis contradiction map (text/html)
   GET  /api/runs                     every run (live and saved), newest first, with summary counts
   GET  /api/runs/{id}/metrics        LLM calls, tokens, searches and stage timings for one run
@@ -24,7 +27,7 @@ to the browser as Server-Sent Events. Endpoints:
   GET  /api/demo-topics              demo topics from docs/demo-topics.md: [{id, title, topic, note}]
   POST /api/cache/clear              forget finished runs and cached embeddings
 
-Every endpoint except /api/auth/* needs a session: a JWT in the HttpOnly `apollo_session` cookie (set by
+Every endpoint except /api/auth/* and /api/shared/* needs a session: a JWT in the HttpOnly `apollo_session` cookie (set by
 login/register) or an `Authorization: Bearer <jwt>` header. Runs belong to the user who started them and
 are visible only to that user. Runs saved before accounts existed have no owner and stay hidden until
 claimed with `python backend/scripts/claim_runs.py --email <account email>`.
@@ -55,6 +58,7 @@ import logging
 import os
 import queue
 import re
+import secrets
 import shutil
 import socket
 import sqlite3
@@ -78,6 +82,7 @@ from graph.state import initial_state
 from graph.workflow import build_graph
 from reports.contradictions import write_contradiction_map
 from reports.events import EventConverter, make_event, warning_event
+from reports.docx_export import render_docx
 from reports.export import render_markdown, write_report
 from tools import embed, passages
 from tools.text import CITE, CLAIM_STATUSES, NOT_FOUND, WRITE_FAILED, find_citations, strip_citations
@@ -927,6 +932,123 @@ def download_report(run_id: str, user: User) -> Response:
     # Rendered from the stored state, so it works after a redeploy with no local files.
     return Response(render_markdown(state), media_type="text/markdown",
                     headers={"Content-Disposition": f'attachment; filename="apollo-report-{run_id[:8]}.md"'})
+
+
+DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+def _docx_response(run: Run, state: dict) -> Response:
+    return Response(render_docx(state), media_type=DOCX_TYPE,
+                    headers={"Content-Disposition": f'attachment; filename="apollo-report-{run.id[:8]}.docx"'})
+
+
+@app.get("/api/runs/{run_id}/report.docx")
+def download_report_docx(run_id: str, user: User) -> Response:
+    run = _get(run_id, user)
+    with _lock:
+        state = run.state
+    if state is None:
+        raise HTTPException(409, "the report is not ready yet")
+    return _docx_response(run, state)
+
+
+# ---------------------------------------------------------------- public read-only share links
+# The owner turns a link on (POST /share) and off (DELETE /share). The link carries a random token (32 bytes of
+# randomness, URL-safe); anyone holding it can READ that one report, nothing else: no other runs, no actions.
+# The token lives in runs.share_token in the database, so a link made on one server works on every server.
+
+_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{20,64}$")
+
+
+def _share_token_of(run_id: str) -> str | None:
+    with db.engine().connect() as conn:
+        return conn.execute(select(db.runs.c.share_token).where(db.runs.c.id == run_id)).scalar()
+
+
+@app.get("/api/runs/{run_id}/share")
+def get_share(run_id: str, user: User) -> dict:
+    _get(run_id, user)
+    return {"token": _share_token_of(run_id)}
+
+
+@app.post("/api/runs/{run_id}/share")
+def create_share(run_id: str, user: User) -> dict:
+    """Turn the public link on (or return the existing one). Only for a finished run with a report."""
+    run = _get(run_id, user)
+    with _lock:
+        ready = run.state is not None and run.status not in ACTIVE
+    if not ready:
+        raise HTTPException(409, "the report is not ready yet")
+    token = _share_token_of(run_id)
+    if token:
+        return {"token": token}
+    token = secrets.token_urlsafe(32)
+    with db.engine().begin() as conn:
+        if conn.execute(update(db.runs).where(db.runs.c.id == run_id).values(share_token=token)).rowcount == 0:
+            raise HTTPException(409, "the run is not saved yet; try again in a moment")
+    return {"token": token}
+
+
+@app.delete("/api/runs/{run_id}/share")
+def delete_share(run_id: str, user: User) -> dict:
+    """Turn the public link off: the old link stops working at once."""
+    _get(run_id, user)
+    with db.engine().begin() as conn:
+        conn.execute(update(db.runs).where(db.runs.c.id == run_id).values(share_token=None))
+    return {"ok": True}
+
+
+def _shared(token: str) -> tuple[Run, dict]:
+    """The run a share token opens, with its final state; 404 for an unknown or turned-off link."""
+    if not _TOKEN_RE.match(token):
+        raise HTTPException(404, "This link is not valid or has been turned off.")
+    with db.engine().connect() as conn:
+        row = conn.execute(select(db.runs).where(db.runs.c.share_token == token)).first()
+    if row is None:
+        raise HTTPException(404, "This link is not valid or has been turned off.")
+    with _lock:
+        run = _runs.get(row.id)
+    if run is None:  # saved by another server sharing the database: read it from the row
+        run, _ = _run_from_row(row, int(time.time() * 1000))
+    with _lock:
+        state = run.state
+    if state is None:
+        raise HTTPException(404, "This link is not valid or has been turned off.")
+    return run, state
+
+
+@app.get("/api/shared/{token}")
+def shared_report(token: str) -> dict:
+    """The shared report, read-only and without a sign-in. Only what the report shows: no errors, logs or usage."""
+    run, state = _shared(token)
+    return {
+        "topic": state["topic"],
+        "created_at": run.created_at,
+        "status": state["status"],
+        "stop_reason": state["stop_reason"],
+        "markdown": state["report"],
+        "references": state["references"],
+        "sources": _source_rows(state),
+        "verification": [
+            {"claim": c["claim"], "status": c["status"], "evidence": c["best_match"] or c["evidence"],
+             "source_ids": c["source_ids"], "similarity": round(c["similarity"], 3)}
+            for c in state["claims"]
+        ],
+        "plan": state["plan"],
+    }
+
+
+@app.get("/api/shared/{token}/report.md")
+def shared_report_md(token: str) -> Response:
+    run, state = _shared(token)
+    return Response(render_markdown(state), media_type="text/markdown",
+                    headers={"Content-Disposition": f'attachment; filename="apollo-report-{run.id[:8]}.md"'})
+
+
+@app.get("/api/shared/{token}/report.docx")
+def shared_report_docx(token: str) -> Response:
+    run, state = _shared(token)
+    return _docx_response(run, state)
 
 
 @app.get("/api/runs/{run_id}/contradictions")

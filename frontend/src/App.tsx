@@ -3,7 +3,7 @@
 // menu). All run data comes from the store (store.tsx).
 
 import { useEffect, useState } from 'react'
-import { PAGES, go, pageLabel, useRoute, type PageKey } from './router'
+import { PAGES, go, pageLabel, sharedToken, useRoute, type PageKey } from './router'
 import { AuthGate, useAuth } from './auth'
 import { StoreProvider, useStore } from './store'
 import { Pill, btn, fmtTime } from './ui'
@@ -19,6 +19,7 @@ import Verification from './pages/Verification'
 import Reports from './pages/Reports'
 import LiveReport from './pages/LiveReport'
 import ResearchMiniGame from './components/ResearchMiniGame'
+import SharedReport from './pages/SharedReport'
 
 const VIEW: Record<PageKey, () => JSX.Element> = {
   dashboard: Dashboard, new: NewResearch, analytics: Analytics,
@@ -181,6 +182,14 @@ function Shell() {
 }
 
 export default function App() {
+  // A public share link (#/shared/<token>) opens the read-only report without signing in.
+  const [shared, setShared] = useState(sharedToken)
+  useEffect(() => {
+    const on = () => setShared(sharedToken())
+    window.addEventListener('hashchange', on)
+    return () => window.removeEventListener('hashchange', on)
+  }, [])
+  if (shared) return <SharedReport token={shared} />
   return (
     <AuthGate>
       <StoreProvider>
