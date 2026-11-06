@@ -1,6 +1,6 @@
 // Cost & Execution: the selected run's usage meter (LLM calls, tokens per model and per
 // agent node, web searches, time per stage, call log), its stop condition and the limits that
-// bound every run. Dollar cost appears only when PRICE_* is set in .env. The token budget is
+// bound every run. The token budget is
 // a viewer-side reference (saved in this browser); the backend does not stop on budget.
 
 import { useState } from 'react'
@@ -59,13 +59,13 @@ export default function Cost() {
   return (
     <div>
       <PageHeader kicker="08 · Cost & execution" title="Cost & execution" />
-      <div className="grid grid-cols-2 gap-px border border-line bg-line md:grid-cols-3 xl:grid-cols-6 [&>*]:border-0">
+      {/* five tiles: the last spans both columns on phones, so no empty cell is left */}
+      <div className="grid grid-cols-2 gap-px border border-line bg-line md:grid-cols-5 [&>*]:border-0 [&>*:last-child]:col-span-2 md:[&>*:last-child]:col-span-1">
         <Stat label="Actual time" value={fmtMs(metrics.wall_ms)} sub={estimate ? `est. ${fmtMs(estimate)} (avg of ${peers.length})` : 'no estimate yet'} />
         <Stat label="LLM calls" value={s.llm_calls} sub={s.llm_failed ? `${s.llm_failed} failed / retried` : 'none failed'} tone={s.llm_failed ? 'warn' : 'normal'} />
         <Stat label="Input tokens" value={fmtInt(s.prompt_tokens)} tone="accent" />
         <Stat label="Output tokens" value={fmtInt(s.completion_tokens)} tone="accent" />
         <Stat label="Search API calls" value={s.searches} sub={s.searches_failed ? `${s.searches_failed} failed` : `${fmtSec(s.search_seconds)} total`} tone={s.searches_failed ? 'warn' : 'normal'} />
-        <Stat label="Est. cost" value={metrics.cost_usd === null ? '–' : `$${metrics.cost_usd.toFixed(4)}`} sub={metrics.cost_usd === null ? 'set PRICE_* in .env' : 'from .env prices'} />
       </div>
 
       <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">

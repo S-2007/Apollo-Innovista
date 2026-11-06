@@ -1,8 +1,7 @@
 // Research command form: objective (a question, or a YouTube link to read and fact-check), research depth (= max research rounds, which the backend
 // caps at 2) and human approval. It starts empty: no sample topics, so nothing looks like an
 // earlier user's search. Attached documents (PDF, .txt, .md) are uploaded and read as soon as they are picked,
-// so a file the server cannot read says why before the run starts. Controls the backend cannot honour yet
-// (source preference, agent count) are shown disabled with the reason, so nothing pretends to work.
+// so a file the server cannot read says why before the run starts.
 
 import { useRef, useState } from 'react'
 import { uploadDocument, type UploadedDocument } from '../api'
@@ -118,20 +117,6 @@ export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Prop
             <input type="checkbox" checked={hitl} disabled={busy} onChange={(e) => setHitl(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#3b82f6]" />
             <span>Approve the plan and follow-up queries before they run<span className="block text-[11px] text-muted">Off: the run proceeds automatically.</span></span>
           </label>
-        </div>
-        <div className="bg-surface p-4">
-          <label htmlFor="src-pref" className="label">Source preference</label>
-          <select id="src-pref" disabled className={`${field} mt-1.5 py-1.5`} aria-describedby="src-pref-note">
-            <option>Open web + specialist sources, by topic</option>
-          </select>
-          <p id="src-pref-note" className="mt-1 text-[11px] text-muted">Web search (Tavily, Serper fallback) always runs; papers, medical literature, statistics, news or code sources are added when a sub-question is about them.</p>
-        </div>
-        <div className="bg-surface p-4">
-          <label htmlFor="agent-count" className="label">Agents</label>
-          <select id="agent-count" disabled className={`${field} mt-1.5 py-1.5`} aria-describedby="agent-note">
-            <option>3: Apollo · Athena · Hermes</option>
-          </select>
-          <p id="agent-note" className="mt-1 text-[11px] text-muted">Fixed by the LangGraph pipeline; not configurable per run.</p>
         </div>
       </div>
 
