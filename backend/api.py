@@ -1224,7 +1224,8 @@ def system(user: User) -> dict:
                    "search_max_retries": config.SEARCH_MAX_RETRIES, "llm_max_retries": config.LLM_MAX_RETRIES,
                    "request_timeout_seconds": config.REQUEST_TIMEOUT_SECONDS, "recursion_limit": config.GRAPH_RECURSION_LIMIT,
                    "max_gap_queries": config.MAX_GAP_QUERIES, "verify_max_claims": config.VERIFY_MAX_CLAIMS,
-                   "hitl_wait_seconds": HITL_WAIT_SECONDS, "max_page_bytes": config.MAX_PAGE_BYTES},
+                   "hitl_wait_seconds": HITL_WAIT_SECONDS, "max_page_bytes": config.MAX_PAGE_BYTES,
+                   "video_max_seconds": config.VIDEO_MAX_SECONDS},  # the research form refuses longer YouTube videos
         "checks": {
             "env_example_committed": (root / ".env.example").exists(),
             "env_gitignored": ".env" in ignored,

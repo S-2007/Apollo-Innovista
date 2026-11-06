@@ -1,11 +1,16 @@
 // Research command form: objective (a question, or a YouTube link to read and fact-check), research depth (= max research rounds, which the backend
 // caps at 2) and human approval. It starts empty: no sample topics, so nothing looks like an
 // earlier user's search. Attached documents (PDF, .txt, .md) are uploaded and read as soon as they are picked,
-// so a file the server cannot read says why before the run starts.
+// so a file the server cannot read says why before the run starts. A YouTube video longer than the backend's
+// limit (35 min) is refused with a pop-up before the run starts; its length comes from the browser's YouTube player.
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { uploadDocument, type UploadedDocument } from '../api'
+import { useStore } from '../store'
 import { btn, field } from '../ui'
+import { minutesText, videoSeconds, youtubeId } from '../youtube'
+
+const VIDEO_MAX_SECONDS = 2100 // used until /api/system answers (its limits.video_max_seconds)
 
 const MAX_DOCUMENTS = 3 // the backend's DOCUMENT_MAX_FILES
 const ACCEPT = '.pdf,.txt,.md'
@@ -59,14 +64,36 @@ export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Prop
   }
   const documentIds = files.flatMap((f) => (f.state === 'ready' ? [f.doc.id] : []))
 
+  const { system } = useStore()
+  const limit = system?.limits?.video_max_seconds || VIDEO_MAX_SECONDS
+  const [checking, setChecking] = useState(false)
+  const [tooLong, setTooLong] = useState<number | null>(null) // the refused video's length, while the pop-up is open
+
+  const submit = async () => {
+    if (!ready || busy || checking) return
+    const id = youtubeId(topic)
+    if (id) {
+      setChecking(true)
+      const seconds = await videoSeconds(id)
+      setChecking(false)
+      // Length unknown (player blocked or offline): let the run start; the backend still stops a long video.
+      if (seconds !== null && seconds > limit + 30) {
+        setTooLong(seconds)
+        return
+      }
+    }
+    onStart(topic.trim(), maxRounds, hitl, documentIds)
+  }
+
   return (
     <form
       className="neo-panel @container border border-line bg-surface"
       onSubmit={(e) => {
         e.preventDefault()
-        if (ready && !busy) onStart(topic.trim(), maxRounds, hitl, documentIds)
+        void submit()
       }}
     >
+      {tooLong !== null && <TooLongDialog seconds={tooLong} limit={limit} onClose={() => setTooLong(null)} />}
       <div className="p-4">
         <label htmlFor="topic" className="label">Research objective</label>
         <textarea
@@ -88,7 +115,7 @@ export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Prop
         />
         {video ? (
           <p className="feed-in mt-1.5 border-l-2 border-accent-strong bg-accent/[0.06] px-2.5 py-1.5 text-xs text-ink">
-            <span className="font-medium">YouTube video detected.</span> Apollo reads its transcript (captions, or a Gemini transcription if there are none), then checks the video's claims against independent sources, citing the moment each one is said. If the words cannot be read, the run stops and says why; it never guesses from the title.
+            <span className="font-medium">YouTube video detected.</span> Apollo reads its transcript (captions, or a Gemini transcription if there are none), then checks the video's claims against independent sources, citing the moment each one is said. If the words cannot be read, the run stops and says why; it never guesses from the title. Videos must be under {Math.round(limit / 60)} minutes.
           </p>
         ) : (
           <p id="topic-hint" className="mt-1 text-[11px] text-muted">3–300 characters. Press Enter to start (Shift+Enter for a new line). The report uses retrieved sources only; unsupported points say "not found in sources".</p>
@@ -151,10 +178,37 @@ export default function TopicForm({ busy, onStart, topic: outer, onTopic }: Prop
             ))}
           </ul>
         )}
-        <button type="submit" disabled={busy || !ready} className={`${btn.primary} ml-auto min-w-[180px]`}>
-          {busy ? 'Research in progress' : <>Initiate research <span className="nudge" aria-hidden="true">→</span></>}
+        <button type="submit" disabled={busy || !ready || checking} className={`${btn.primary} ml-auto min-w-[180px]`}>
+          {busy ? 'Research in progress' : checking ? 'Checking video length…' : <>Initiate research <span className="nudge" aria-hidden="true">→</span></>}
         </button>
       </div>
     </form>
+  )
+}
+
+function TooLongDialog({ seconds, limit, onClose }: { seconds: number; limit: number; onClose: () => void }) {
+  const ok = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    ok.current?.focus()
+    const on = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', on)
+    return () => window.removeEventListener('keydown', on)
+  }, [onClose])
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button type="button" className="absolute inset-0 bg-ink/30" aria-label="Close" tabIndex={-1} onClick={onClose} />
+      <div role="alertdialog" aria-modal="true" aria-labelledby="too-long-title" aria-describedby="too-long-text"
+        className="neo-panel relative w-full max-w-[420px] border border-line bg-surface p-5">
+        <p className="label">YouTube video</p>
+        <h2 id="too-long-title" className="mt-1.5 font-display text-lg font-semibold text-ink">This video is too long</h2>
+        <p id="too-long-text" className="mt-2 text-sm text-ink">
+          It is {minutesText(seconds)} long. The video must be under {Math.round(limit / 60)} minutes for Apollo to read all of it.
+          Please use a shorter video, or a shorter part of this one.
+        </p>
+        <div className="mt-4 flex justify-end">
+          <button ref={ok} type="button" onClick={onClose} className={btn.primary}>OK</button>
+        </div>
+      </div>
+    </div>
   )
 }

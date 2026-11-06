@@ -147,16 +147,19 @@ TRANSCRIBE_PROMPT = (
 def transcribe_video(url: str, model: str | None = None) -> str:
     """Gemini watches a public YouTube video by URL and returns "[mm:ss] sentence" lines (tools/video.py).
     Low media resolution: the words are what matters, and it keeps a 15-minute video near 50k tokens.
+    Only the first VIDEO_MAX_SECONDS are sent, at VIDEO_GEMINI_FPS frames a second: a long lecture
+    sent whole made Gemini time out (504 DEADLINE_EXCEEDED), and only about that much transcript is kept anyway.
     A reply with no text returns "" (tools/video.py then tries the next model in VIDEO_GEMINI_MODELS)."""
     if replay.active():
         raise ConfigError("replay mode does not transcribe videos")
     from google.genai import types
 
     name, started = model or config.VIDEO_GEMINI_MODEL, time.monotonic()
+    clip = types.VideoMetadata(start_offset="0s", end_offset=f"{config.VIDEO_MAX_SECONDS}s", fps=config.VIDEO_GEMINI_FPS)
     try:
         resp = _get_client("gemini").models.generate_content(
             model=name,
-            contents=types.Content(parts=[types.Part(file_data=types.FileData(file_uri=url)),
+            contents=types.Content(parts=[types.Part(file_data=types.FileData(file_uri=url), video_metadata=clip),
                                           types.Part(text=TRANSCRIBE_PROMPT)]),
             config=types.GenerateContentConfig(
                 temperature=0,

@@ -119,6 +119,46 @@ def test_read_video_falls_back_to_gemini_when_captions_fail(monkeypatch, meta):
     assert any("RequestBlocked" in e for e in errors)  # the blocked captions are still reported
 
 
+def test_gemini_sees_only_the_start_of_a_long_video_and_the_cut_is_marked(monkeypatch, meta):
+    """Seen live: a whole 2-hour lecture made Gemini time out (504). Only the first VIDEO_MAX_SECONDS are sent."""
+    from google.genai import types
+
+    sent = {}
+
+    class Models:
+        def generate_content(self, model, contents, config):
+            sent["clip"] = contents.parts[0].video_metadata
+            text = "\n".join(f"[{m:02d}:00] The lecture goes on with point number {m} about functions." for m in range(21))
+            return types.GenerateContentResponse(candidates=[types.Candidate(content=types.Content(parts=[types.Part(text=text)]))])
+
+    class Client:
+        models = Models()
+
+    monkeypatch.setattr(video, "captions", lambda vid, errors: ([], ""))
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(config, "VIDEO_MAX_SECONDS", 1200)
+    monkeypatch.setattr(llm, "_get_client", lambda provider: Client())
+    v = video.read_video(LINK, [])
+    assert sent["clip"].start_offset == "0s" and sent["clip"].end_offset == "1200s" and sent["clip"].fps == config.VIDEO_GEMINI_FPS
+    assert v["extracted_by"] == "gemini_transcript" and v["truncated"] is True and v["seconds"] == 1200
+
+
+def test_captions_of_a_video_over_the_limit_stop_the_run_with_the_reason(monkeypatch, meta):
+    long_talk = [(float(s), f"sentence spoken at second {s}.") for s in range(0, 2400, 10)]  # 40 minutes
+    monkeypatch.setattr(video, "captions", lambda vid, errors: (long_talk, "en"))
+    monkeypatch.setattr(config, "VIDEO_MAX_SECONDS", 2100)
+    with pytest.raises(video.VideoTooLong, match=r"about 40 minutes long.*up to 35 minutes"):
+        video.read_video(LINK, [])
+    assert issubclass(video.VideoTooLong, video.VideoUnreadable)  # the API handles it like any unreadable video
+
+
+def test_captions_of_a_video_within_the_limit_are_read(monkeypatch, meta):
+    talk = [(float(s), f"sentence spoken at second {s}.") for s in range(0, 2100, 10)]  # 35 minutes
+    monkeypatch.setattr(video, "captions", lambda vid, errors: (talk, "en"))
+    monkeypatch.setattr(config, "VIDEO_MAX_SECONDS", 2100)
+    assert video.read_video(LINK, [])["extracted_by"] == "youtube_captions"
+
+
 def test_an_empty_or_overloaded_gemini_model_hands_the_video_to_the_next(monkeypatch, meta):
     """Seen live: a model answered with no text, another with 503; the next model transcribed the video."""
     monkeypatch.setattr(video, "captions", lambda vid, errors: ([], ""))

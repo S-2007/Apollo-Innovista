@@ -9,9 +9,13 @@ description, then guess; Apollo uses the spoken words or stops with the reason.
    verifier's embedding model is English-only), otherwise kept as they are.
 2. If there are no captions, or YouTube refuses the request (it often blocks cloud servers):
    Gemini watches the video by URL and transcribes it (llm.transcribe_video). This text is model
-   output, so it is labelled "gemini_transcript", never presented as the video's own captions.
+   output, so it is labelled "gemini_transcript", never presented as the video's own captions. Gemini is shown
+   only the first VIDEO_MAX_SECONDS (a whole long lecture timed out); a transcript that reaches that
+   point is marked as cut.
 3. If both fail, read_video raises VideoUnreadable with every reason. Nothing is ever summarised
    from the title alone.
+Videos longer than VIDEO_MAX_SECONDS (35 min) are not read: the research form refuses the link (it learns the
+length from the browser's YouTube player), and captions that show a longer video raise VideoTooLong.
 
 Transcript lines look like "[04:12] what was said", one line per caption group, so a passage
 picked by the writer or verifier can be traced back to the moment in the video (time_of).
@@ -38,6 +42,10 @@ OEMBED_URL = "https://www.youtube.com/oembed"
 
 class VideoUnreadable(Exception):
     """The video's words could not be read; the message says why, in plain language."""
+
+
+class VideoTooLong(VideoUnreadable):
+    """The video is longer than VIDEO_MAX_SECONDS (known from its captions)."""
 
 
 def find_video(text: str) -> tuple[str, str] | None:
@@ -176,6 +184,12 @@ def read_video(topic: str, errors: list[str]) -> dict | None:
     snippets, language = captions(video_id, reasons)
     extracted_by = "youtube_captions"
     if snippets:
+        if snippets[-1][0] > config.VIDEO_MAX_SECONDS + 30:  # the form refuses such links; this catches the rest
+            title = f" \"{meta['title']}\"" if meta["title"] else ""
+            raise VideoTooLong(
+                f"The video{title} is about {round(snippets[-1][0] / 60)} minutes long. Apollo reads videos of up to "
+                f"{config.VIDEO_MAX_SECONDS // 60} minutes; please use a shorter video or a part of it."
+            )
         lines = _lines(snippets)
     else:
         lines, language, extracted_by = [], "en", "gemini_transcript"
@@ -200,6 +214,8 @@ def read_video(topic: str, errors: list[str]) -> dict | None:
                 reasons.append(f"Gemini {model}'s transcript had no timestamped lines: {raw[:120]!r}")
 
     content, seconds, truncated = transcript_text(lines)
+    if extracted_by == "gemini_transcript" and lines and lines[-1][0] >= config.VIDEO_MAX_SECONDS - 30:
+        truncated = True  # Gemini was shown only the first VIDEO_MAX_SECONDS: the video goes on after that
     if len(content) < config.MIN_CONTENT_CHARS:
         errors.extend(reasons)
         title = f" \"{meta['title']}\"" if meta["title"] else ""

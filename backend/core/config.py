@@ -169,7 +169,7 @@ REPLAY_SCENARIO = os.getenv("REPLAY_SCENARIO", "ok").strip().lower()
 # --- YouTube links (tools/video.py) ---
 VIDEO_LANGUAGES = ["en", "en-US", "en-GB", "hi"]  # caption languages tried first, in order
 VIDEO_LINE_SECONDS = 20     # caption snippets are grouped into lines of about this length, each with its time
-VIDEO_MAX_CHARS = 40000     # transcript kept (about 45 minutes of speech); a longer video is marked as cut
+VIDEO_MAX_CHARS = 48000     # transcript kept: a fast 35-minute lecture is about 40k characters; a longer one is marked as cut
 VIDEO_PLAN_CHARS = 6000     # transcript lines, spread over the whole video, shown to the planner
 # No captions, or YouTube blocks the server: let Gemini watch the video by URL and transcribe it.
 VIDEO_GEMINI_FALLBACK = os.getenv("VIDEO_GEMINI_FALLBACK", "true").strip().lower() == "true"
@@ -179,6 +179,13 @@ VIDEO_GEMINI_MODEL = os.getenv("VIDEO_GEMINI_MODEL", GEMINI_MODEL)
 VIDEO_GEMINI_MODELS = list(dict.fromkeys(m.strip() for m in os.getenv(
     "VIDEO_GEMINI_MODELS", f"{VIDEO_GEMINI_MODEL},{GEMINI_FALLBACK_MODEL},gemini-3.5-flash").split(",") if m.strip()))
 VIDEO_TIMEOUT_SECONDS = _int("VIDEO_TIMEOUT_SECONDS", 180)
+# Longest video Apollo reads (35 min). The research form refuses a longer link (a pop-up, from the browser's own
+# YouTube player); captions that show a longer video stop the run with that reason. Gemini is sent only this much,
+# at few frames a second (the words are in the audio): sent whole, a 2-hour lecture (CS50 Lecture 0) timed out
+# (504 DEADLINE_EXCEEDED). Measured 2026-11-06 on that lecture with gemini-3.1-flash-lite: first 20 min 27 s
+# (22.7k characters), 30 min 38 s (33.8k), 35 min 43 s (39.9k); 45 min took 329 s.
+VIDEO_MAX_SECONDS = _int("VIDEO_MAX_SECONDS", 2100)
+VIDEO_GEMINI_FPS = _float("VIDEO_GEMINI_FPS", 0.2)
 
 # --- Attached documents (tools/documents.py) ---
 DOCUMENT_MAX_FILES = 3              # documents per run

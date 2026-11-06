@@ -985,3 +985,19 @@ the older copy command, and the link also shows in a read-only text box.
 signed-out browser; an unknown token shows "This link is not valid or has been turned off"; Turn off link made
 the old link return 404; the pane refused navigator.clipboard and the fallback copied the link. `pytest` 234 passed
 (5 new in test_share_docx.py).
+
+## Phase 3.38: YouTube videos up to 35 minutes (2026-11-06)
+
+**Seen on Render:** a CS50 lecture (1 h 46 min) failed. YouTube blocks Render's IP for captions (IpBlocked), and
+Gemini, given the whole video, timed out (504 DEADLINE_EXCEEDED) or was overloaded (503).
+**Built:** VIDEO_MAX_SECONDS (2100 = 35 min) is the longest video Apollo reads. Gemini is sent only that much, at
+VIDEO_GEMINI_FPS (0.2) frames a second (VideoMetadata end_offset and fps; the words are in the audio); a transcript
+that reaches the end of that window is marked as cut. VIDEO_MAX_CHARS rose from 40k to 48k, since a fast 35-minute
+lecture is about 40k characters. The research form reads a pasted video's length in the user's browser (YouTube's
+IFrame player API, no-cookie host, hidden, never plays) and refuses a longer one with a pop-up ("This video is too
+long ... must be under 35 minutes"); when that length cannot be read the run starts and the backend decides.
+Captions that show a longer video stop the run with VideoTooLong and that reason. /api/system's limits carry
+video_max_seconds.
+**Checked live:** the same lecture with captions forced to fail: Gemini on the first 20 min took 27 s (22.7k
+characters), 30 min 38 s (33.8k), 35 min 43 s (39.9k), 45 min 329 s. In the browser the lecture's link opened the
+pop-up (1 h 46 min) on desktop and phone without starting a run; a short video went straight to the start request.
