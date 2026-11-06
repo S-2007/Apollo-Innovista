@@ -1009,3 +1009,20 @@ search round starts; writing and claim verification always run. In local Deep ru
 after the start, so 180 s was enough for plain topics; a YouTube topic spends about 45 s reading the video first,
 and slower Render runs (rate-limit waits) could pass 180 s before the first review, losing the second round.
 Topics that finish in one round are unchanged: Hermes' "complete" still stops the run.
+
+## Phase 3.40: dark theme (2026-11-06)
+
+**Built:** a bulb toggle in the top bar (SVG, aria-pressed, label and tooltip "Switch to dark/light theme") sets
+html data-theme and saves it as localStorage apollo-theme; a small script in index.html applies the saved theme
+before the first paint, so there is no light flash. frontend/src/theme-dark.css remaps the existing tokens
+(--color-surface, --color-ink, --color-line, ...) under :root[data-theme=dark], for screens only (printing stays
+light). Selected states (active nav, selected depth card, enabled primary button, active filters, selected rows,
+agent number strips, inverted chips) use deep teal #1F5B5D with #E9F7F5 text; disabled primary buttons stay a
+neutral blue-grey with no shadow. Dark navy workspace with the same wave composition. The claim-evidence graph
+reads its colours from CSS variables (light values unchanged). Apollo Flight's panel follows the theme; its canvas
+keeps the light sky. The light theme's rules are untouched.
+**Checked (production build, local server, replay mode for a busy run):** toggle switches and survives a reload;
+computed colours in dark: textarea rgba(7,19,31,.78), cards #0C1B29, selected depth card and active nav #1F5B5D
+with #E9F7F5 text, disabled Initiate research #15293A with #7F92A3 text; Dashboard, Claims (graph, filters, list),
+Reports, Analytics, Live Report with the approval panel and the mini-game (start, flap, minimize) all readable;
+375 px phone: no horizontal scroll. Element positions are the same in both themes.

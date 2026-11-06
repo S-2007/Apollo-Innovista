@@ -135,7 +135,8 @@ function EvidenceGraph({ claims, sources, open, onOpen }: { claims: Claim[]; sou
   const W = 760, lx = 120, rx = W - 170
   const cy = (i: number) => 14 + i * ((H - 28) / Math.max(1, claims.length - 1 || 1))
   const sy = (i: number) => 14 + i * ((H - 28) / Math.max(1, used.length - 1 || 1))
-  const color = { verified: '#2f9e6b', partial: '#d99a1f', contradicted: '#b42335', not_found: '#ef6673', unchecked: '#9aa1ab' } as const
+  // Theme colours (theme-dark.css): the light values are the ones used before; dark mode lightens them.
+  const color = { verified: 'var(--graph-verified)', partial: 'var(--graph-partial)', contradicted: 'var(--graph-contradicted)', not_found: 'var(--graph-not-found)', unchecked: 'var(--graph-unchecked)' } as const
   const dash = { verified: undefined, partial: '5 3', contradicted: undefined, not_found: '2 3', unchecked: '1 4' } as const
   return (
     <div className="overflow-x-auto">
@@ -145,20 +146,20 @@ function EvidenceGraph({ claims, sources, open, onOpen }: { claims: Claim[]; sou
             const j = used.findIndex((s) => s.id === id)
             if (j < 0) return null
             const on = open === null || open === i
-            return <path key={`${i}-${id}`} d={`M${lx},${cy(i)} C${(lx + rx) / 2},${cy(i)} ${(lx + rx) / 2},${sy(j)} ${rx},${sy(j)}`} fill="none" stroke={color[c.status]} strokeDasharray={dash[c.status]} strokeWidth={open === i ? 2 : 1.1} opacity={on ? 0.9 : 0.12} />
+            return <path key={`${i}-${id}`} d={`M${lx},${cy(i)} C${(lx + rx) / 2},${cy(i)} ${(lx + rx) / 2},${sy(j)} ${rx},${sy(j)}`} fill="none" style={{ stroke: color[c.status] }} strokeDasharray={dash[c.status]} strokeWidth={open === i ? 2 : 1.1} opacity={on ? 0.9 : 0.12} />
           }),
         )}
         {claims.map((c, i) => (
           <g key={i} onClick={() => onOpen(open === i ? null : i)} className="cursor-pointer" role="button" tabIndex={0} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onOpen(open === i ? null : i)} aria-label={`Claim C${i + 1}, ${c.status.replace('_', ' ')}`}>
-            <rect x={lx - 108} y={cy(i) - 8} width={104} height={16} fill={open === i ? '#111318' : '#ffffff'} stroke="rgba(17,19,24,.3)" />
-            <text x={lx - 100} y={cy(i) + 4} fontFamily="JetBrains Mono, monospace" fontSize="9" fill={open === i ? '#fff' : '#111318'}>C{i + 1} · {c.status.replace('_', ' ')}</text>
-            <circle cx={lx} cy={cy(i)} r={3.5} fill={color[c.status]} />
+            <rect x={lx - 108} y={cy(i) - 8} width={104} height={16} style={{ fill: open === i ? 'var(--graph-node-active)' : 'var(--graph-node)', stroke: 'var(--graph-node-stroke)' }} />
+            <text x={lx - 100} y={cy(i) + 4} fontFamily="JetBrains Mono, monospace" fontSize="9" style={{ fill: open === i ? 'var(--graph-node-active-ink)' : 'var(--graph-node-ink)' }}>C{i + 1} · {c.status.replace('_', ' ')}</text>
+            <circle cx={lx} cy={cy(i)} r={3.5} style={{ fill: color[c.status] }} />
           </g>
         ))}
         {used.map((s, j) => (
           <g key={s.id}>
-            <circle cx={rx} cy={sy(j)} r={3.5} fill="#3b82f6" />
-            <text x={rx + 8} y={sy(j) + 4} fontFamily="JetBrains Mono, monospace" fontSize="9" fill="#111318">{s.id} · {hostOf(s.url).slice(0, 22)}</text>
+            <circle cx={rx} cy={sy(j)} r={3.5} style={{ fill: 'var(--graph-source)' }} />
+            <text x={rx + 8} y={sy(j) + 4} fontFamily="JetBrains Mono, monospace" fontSize="9" style={{ fill: 'var(--graph-label)' }}>{s.id} · {hostOf(s.url).slice(0, 22)}</text>
           </g>
         ))}
       </svg>

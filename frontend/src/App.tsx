@@ -19,6 +19,7 @@ import Verification from './pages/Verification'
 import Reports from './pages/Reports'
 import LiveReport from './pages/LiveReport'
 import ResearchMiniGame from './components/ResearchMiniGame'
+import { useTheme } from './theme'
 import SharedReport from './pages/SharedReport'
 
 const VIEW: Record<PageKey, () => JSX.Element> = {
@@ -98,6 +99,21 @@ function Sidebar({ page, onNavigate }: { page: PageKey; onNavigate: () => void }
   )
 }
 
+/** Bulb toggle: lit (pressed) while the dark theme is on. Only the theme changes, so no page or form state resets. */
+function ThemeToggle() {
+  const { theme, toggle } = useTheme()
+  const dark = theme === 'dark'
+  const label = dark ? 'Switch to light theme' : 'Switch to dark theme'
+  return (
+    <button type="button" onClick={toggle} aria-pressed={dark} aria-label={label} title={label} className={`${btn.secondary} theme-toggle`}>
+      <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M8 1.75a4.25 4.25 0 0 0-2.5 7.69c.47.34.75.89.75 1.47v.34h3.5v-.34c0-.58.28-1.13.75-1.47A4.25 4.25 0 0 0 8 1.75z" fill={dark ? 'currentColor' : 'none'} fillOpacity={dark ? 0.25 : 0} />
+        <path d="M6.25 13.25h3.5M6.75 14.75h2.5" />
+      </svg>
+    </button>
+  )
+}
+
 function TopBar({ page, onMenu }: { page: PageKey; onMenu: () => void }) {
   const { runs, runId, select, selected, problem, setProblem, busy, reconnecting } = useStore()
   const title = pageLabel(page)
@@ -124,6 +140,7 @@ function TopBar({ page, onMenu }: { page: PageKey; onMenu: () => void }) {
           </select>
           {selected && <span className="hidden sm:inline"><Pill status={selected.status} /></span>}
           {reconnecting && <span role="status"><Pill status="warn" label="reconnecting…" /></span>}
+          <ThemeToggle />
           <button onClick={() => go('live')} className={btn.secondary} aria-label="Open the live report" aria-current={page === 'live' ? 'page' : undefined}>
             <span className={`state-fade h-1.5 w-1.5 rounded-full ${busy ? 'dot-live bg-accent-strong' : 'bg-muted/40'}`} aria-hidden="true" />
             Live

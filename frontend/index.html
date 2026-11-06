@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light" />
     <title>APOLLO · Multi-Agent Research</title>
+    <script>
+      /* Apply the saved theme before the first paint, so a dark-theme user never sees a light flash. */
+      try {
+        var saved = localStorage.getItem('apollo-theme')
+        document.documentElement.dataset.theme = saved === 'dark' ? 'dark' : 'light'
+      } catch (e) {
+        document.documentElement.dataset.theme = 'light'
+      }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
