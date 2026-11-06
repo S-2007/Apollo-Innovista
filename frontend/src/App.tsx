@@ -19,7 +19,7 @@ import Verification from './pages/Verification'
 import Reports from './pages/Reports'
 import LiveReport from './pages/LiveReport'
 import ResearchMiniGame from './components/ResearchMiniGame'
-import { useTheme } from './theme'
+import ThemeToggle from './components/ThemeToggle'
 import SharedReport from './pages/SharedReport'
 
 const VIEW: Record<PageKey, () => JSX.Element> = {
@@ -52,9 +52,22 @@ function Icon({ d }: { d: string }) {
 }
 
 function Sidebar({ page, onNavigate }: { page: PageKey; onNavigate: () => void }) {
-  const { runs } = useStore()
+  const { runs, setProblem } = useStore()
   const { user, signOut } = useAuth()
+  const [signingOut, setSigningOut] = useState(false)
   const initials = user.name.split(/\s+/).map((w) => w[0] ?? '').join('').slice(0, 2).toUpperCase() || '?'
+  // Signed out only once the server confirms; AuthGate then shows the sign-in screen. A failed request keeps
+  // the user signed in and says why (top-bar message).
+  const onSignOut = async () => {
+    if (signingOut) return
+    setSigningOut(true)
+    try {
+      await signOut()
+    } catch (e) {
+      setProblem(`Could not sign out: ${e instanceof Error ? e.message : 'try again'}`)
+      setSigningOut(false)
+    }
+  }
   const live = runs.filter((r) => r.status === 'running' || r.status === 'awaiting_input').length
 
   return (
@@ -92,34 +105,12 @@ function Sidebar({ page, onNavigate }: { page: PageKey; onNavigate: () => void }
         <div className="flex items-center gap-2.5">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center bg-ink font-mono text-[11px] text-white" aria-hidden="true">{initials}</span>
           <p className="min-w-0 flex-1 truncate text-xs font-medium text-ink" title={user.email}>{user.name}</p>
-          <button onClick={() => void signOut()} className="shrink-0 font-mono text-[11px] text-accent-ink hover:underline">Sign out</button>
+          <button onClick={() => void onSignOut()} disabled={signingOut} aria-busy={signingOut} className="shrink-0 font-mono text-[11px] text-accent-ink hover:underline disabled:text-muted disabled:no-underline">
+            {signingOut ? 'Signing out…' : 'Sign out'}
+          </button>
         </div>
       </div>
     </nav>
-  )
-}
-
-/** Theme toggle: shows the theme it switches TO, as a moon + "Dark" (in light) or a sun + "Light" (in dark).
- *  The word hides on phones, where the icon alone keeps the top bar on one row. Only the theme changes, so no
- *  page or form state resets. */
-function ThemeToggle() {
-  const { theme, toggle } = useTheme()
-  const dark = theme === 'dark'
-  const label = dark ? 'Switch to light theme' : 'Switch to dark theme'
-  return (
-    <button type="button" onClick={toggle} aria-pressed={dark} aria-label={label} title={label} className={`${btn.secondary} theme-toggle`}>
-      <svg viewBox="0 0 16 16" className="h-4 w-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        {dark ? (
-          <>
-            <circle cx="8" cy="8" r="3" fill="currentColor" fillOpacity="0.25" />
-            <path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1" />
-          </>
-        ) : (
-          <path d="M13.5 9.6A5.75 5.75 0 0 1 6.4 2.5a5.75 5.75 0 1 0 7.1 7.1z" />
-        )}
-      </svg>
-      <span className="hidden sm:inline" aria-hidden="true">{dark ? 'Light' : 'Dark'}</span>
-    </button>
   )
 }
 

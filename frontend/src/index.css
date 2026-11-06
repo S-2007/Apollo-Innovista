@@ -627,3 +627,63 @@ body {
     transition: none;
   }
 }
+
+/* Sign-in / create-account screen (auth.tsx). Uses the workspace's wave background (.neo-workspace) and the
+   dashboard's neo-brutalist card language; dark values are in theme-dark.css. */
+.auth-screen {
+  overflow-x: hidden;
+}
+
+.auth-statement {
+  font-size: clamp(2.6rem, 5.2vw, 4.4rem);
+}
+
+.auth-mark {
+  font-size: 26px;
+  height: 56px;
+  width: 56px;
+}
+
+.auth-card {
+  background: var(--color-surface);
+  border: 2px solid var(--color-ink);
+  box-shadow: 8px 8px 0 var(--color-ink);
+}
+
+.auth-tab + .auth-tab {
+  border-left: 2px solid var(--color-ink);
+}
+
+.auth-tab-selected {
+  background: #d5f8f1;
+  color: #10203b;
+  font-weight: 600;
+}
+
+.auth-field {
+  min-height: 44px; /* touch-friendly */
+}
+
+.auth-submit {
+  min-height: 46px;
+}
+
+/* 541-900px: one column; the three benefits sit side by side. */
+@media (min-width: 541px) and (max-width: 900px) {
+  .auth-benefits {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 540px) {
+  .auth-statement {
+    font-size: 2.35rem;
+  }
+  .auth-card {
+    box-shadow: 5px 5px 0 var(--color-ink);
+  }
+  .auth-mark {
+    height: 48px;
+    width: 48px;
+  }
+}

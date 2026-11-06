@@ -3,8 +3,9 @@
 // SIGNED_OUT_EVENT, which returns the user to the sign-in screen. The JWT itself stays in an
 // HttpOnly cookie that this code cannot read.
 
-import { createContext, useContext, useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { SIGNED_OUT_EVENT, authLogin, authLogout, authMe, authRegister, isTransient, type AuthUser } from './api'
+import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { ApiError, SIGNED_OUT_EVENT, authLogin, authLogout, authMe, authRegister, isTransient, type AuthUser } from './api'
+import ThemeToggle from './components/ThemeToggle'
 import { btn, field } from './ui'
 
 interface AuthState {
@@ -66,8 +67,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }
   if (user === null) return <AuthScreen onSignedIn={(u) => { setOffline(null); setUser(u) }} notice={offline} />
 
+  // Signed out only when the server confirms (the session cookie is cleared there). A failure throws, so the
+  // caller can say why while the user stays signed in; a 401 means the session had already ended.
   const signOut = async () => {
-    await authLogout().catch(() => undefined)
+    try {
+      await authLogout()
+    } catch (e) {
+      if (!(e instanceof ApiError && e.status === 401)) throw e
+    }
     setUser(null)
   }
   // key: a different account gets a fresh app state (no previous user's run in memory)
@@ -84,17 +91,22 @@ function AuthScreen({ onSignedIn, notice }: { onSignedIn: (u: AuthUser) => void;
   const [show, setShow] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(notice)
+  // Set at once (state only updates on the next render): a double click or Enter + click sends one request.
+  const inFlight = useRef(false)
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
+    if (inFlight.current) return
     setError(null)
     if (mode === 'register' && password.length < 8) return setError('Password must be at least 8 characters.')
+    inFlight.current = true
     setBusy(true)
     try {
       onSignedIn(mode === 'signin' ? await authLogin(email, password) : await authRegister(name, email, password))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Try again.')
     } finally {
+      inFlight.current = false
       setBusy(false)
     }
   }
@@ -104,55 +116,77 @@ function AuthScreen({ onSignedIn, notice }: { onSignedIn: (u: AuthUser) => void;
     setError(null)
   }
 
+  // Layout: two columns above 900px (brand left, card right, a divider between); one column below, brand on top.
+  // The page wears the workspace's wave background (.neo-workspace), so both themes match the dashboard.
   return (
-    <div className="flex min-h-screen bg-app">
-      <aside className="hidden w-[44%] flex-col justify-between border-r border-line bg-surface p-10 lg:flex">
-        <div>
-          <p className="font-display text-[28px] font-bold leading-none tracking-[0.22em] text-ink">APOLLO</p>
-          <p className="label mt-2">Multi-agent research</p>
-        </div>
-        <div className="max-w-md">
-          <h1 className="font-display text-[30px] font-semibold leading-tight">Research answers built only from retrieved sources.</h1>
-          <ul className="mt-5 space-y-2 text-sm text-muted">
-            <li>· Every claim carries a citation to a real URL.</li>
-            <li>· Each claim is checked against the source text.</li>
-            <li>· What could not be verified is listed, not hidden.</li>
-          </ul>
-        </div>
-        <p className="font-mono text-[11px] text-muted">Apollo plans · Athena searches · Hermes reviews</p>
-      </aside>
+    <div className="auth-screen neo-workspace relative flex min-h-screen flex-col">
+      <div className="absolute right-4 top-4 z-10 sm:right-6 sm:top-5">
+        <ThemeToggle />
+      </div>
 
-      <main className="flex flex-1 items-center justify-center px-4 py-10">
-        <div className="w-full max-w-[400px]">
-          <p className="font-display text-[22px] font-bold tracking-[0.22em] lg:hidden">APOLLO</p>
-          <div role="tablist" aria-label="Account" className="mt-6 grid grid-cols-2 border border-line bg-surface lg:mt-0">
-            {(['signin', 'register'] as const).map((m) => (
-              <button
-                key={m}
-                role="tab"
-                aria-selected={mode === m}
-                onClick={() => switchTo(m)}
-                className={`py-2 font-mono text-[11px] uppercase tracking-wide ${mode === m ? 'bg-ink text-white' : 'text-muted hover:text-ink'}`}
-              >
-                {m === 'signin' ? 'Sign in' : 'Create account'}
-              </button>
-            ))}
-          </div>
-
-          <form onSubmit={submit} className="mt-4 space-y-4 border border-line bg-surface p-6" noValidate>
+      <div className="mx-auto grid w-full max-w-[1120px] flex-1 items-center gap-10 px-4 pb-10 pt-20 sm:px-6 min-[901px]:grid-cols-[minmax(0,1fr)_minmax(0,470px)] min-[901px]:gap-0 min-[901px]:py-16">
+        <section aria-labelledby="auth-statement" className="min-w-0 min-[901px]:border-r min-[901px]:border-line min-[901px]:pr-14">
+          <div className="flex items-center gap-4">
+            <span className="neo-brand-mark auth-mark" aria-hidden="true">A</span>
             <div>
-              <h2 className="font-display text-xl font-semibold">{mode === 'signin' ? 'Welcome back' : 'Create your account'}</h2>
-              <p className="mt-0.5 text-sm text-muted">{mode === 'signin' ? 'Sign in to continue your research.' : 'Your research sessions stay private to your account.'}</p>
+              <p className="font-display text-[26px] font-bold leading-none tracking-[0.2em] text-ink">APOLLO</p>
+              <p className="label mt-2">Multi-Agent Research</p>
+            </div>
+          </div>
+          <h1 id="auth-statement" className="auth-statement mt-10 font-display font-semibold leading-[0.98] tracking-[-0.04em] text-ink max-[900px]:mt-7">
+            Evidence, not guesswork.
+          </h1>
+          <p className="mt-4 max-w-[46ch] text-[15px] leading-relaxed text-muted">
+            Research that proves every line and shows the evidence behind every claim.
+          </p>
+          <ol className="auth-benefits mt-8 grid gap-px border border-line bg-line max-[900px]:mt-6">
+            {['Multi-agent deep research', 'Claim-level verification', 'Evidence-linked reports'].map((b, i) => (
+              <li key={b} className="flex items-center gap-3 bg-surface px-4 py-3">
+                <span className="font-mono text-[11px] text-accent-ink">{String(i + 1).padStart(2, '0')}</span>
+                <span className="text-sm font-medium text-ink">{b}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <section aria-label="Account" className="min-w-0 min-[901px]:pl-14">
+          <div className="auth-card w-full max-w-[470px] max-[900px]:mx-auto">
+            <div className="flex items-center gap-2 border-b border-hair px-6 py-3">
+              <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-hidden="true" />
+              <p className="label">Secure session</p>
+            </div>
+            <div className="px-6 pb-6 pt-5">
+              <div role="tablist" aria-label="Account" className="grid grid-cols-2 border-2 border-ink">
+                {(['signin', 'register'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="tab"
+                    id={`tab-${m}`}
+                    aria-selected={mode === m}
+                    aria-controls="auth-form"
+                    onClick={() => switchTo(m)}
+                    className={`auth-tab min-h-11 font-mono text-[11.5px] uppercase tracking-wide ${mode === m ? 'auth-tab-selected' : 'text-muted hover:bg-surface-2 hover:text-ink'}`}
+                  >
+                    {m === 'signin' ? 'Sign in' : 'Create account'}
+                  </button>
+                ))}
+              </div>
+
+          <form id="auth-form" role="tabpanel" aria-labelledby={`tab-${mode}`} aria-busy={busy} onSubmit={submit} className="mt-5 space-y-4" noValidate>
+            <div>
+              <h2 className="font-display text-[22px] font-semibold text-ink">{mode === 'signin' ? 'Welcome back' : 'Create your account'}</h2>
+              <p className="mt-1 text-sm text-muted">{mode === 'signin' ? 'Sign in to continue your research.' : 'Your research sessions stay private to your account.'}</p>
             </div>
             {mode === 'register' && (
               <div>
                 <label htmlFor="name" className="label">Name</label>
-                <input id="name" autoComplete="name" required value={name} onChange={(e) => setName(e.target.value)} className={`${field} mt-1.5`} />
+                <input id="name" autoComplete="name" required value={name} onChange={(e) => setName(e.target.value)} className={`${field} auth-field mt-1.5`} />
               </div>
             )}
             <div>
               <label htmlFor="email" className="label">Email</label>
-              <input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className={`${field} mt-1.5`} />
+              <input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className={`${field} auth-field mt-1.5`} />
             </div>
             <div>
               <div className="flex items-baseline justify-between">
@@ -170,12 +204,12 @@ function AuthScreen({ onSignedIn, notice }: { onSignedIn: (u: AuthUser) => void;
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 aria-describedby={mode === 'register' ? 'pw-hint' : undefined}
-                className={`${field} mt-1.5`}
+                className={`${field} auth-field mt-1.5`}
               />
               {mode === 'register' && <p id="pw-hint" className="mt-1 text-[11px] text-muted">At least 8 characters.</p>}
             </div>
             {error && <p role="alert" className="border border-err/50 bg-err/10 px-3 py-2 text-sm text-err-ink">{error}</p>}
-            <button type="submit" disabled={busy || !email || !password || (mode === 'register' && !name.trim())} className={`${btn.primary} w-full`}>
+            <button type="submit" disabled={busy || !email || !password || (mode === 'register' && !name.trim())} className={`${btn.primary} auth-submit w-full`}>
               {busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}
             </button>
             <p className="text-center text-sm text-muted">
@@ -185,8 +219,10 @@ function AuthScreen({ onSignedIn, notice }: { onSignedIn: (u: AuthUser) => void;
               </button>
             </p>
           </form>
-        </div>
-      </main>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   )
 }

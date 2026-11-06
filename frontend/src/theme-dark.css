@@ -258,6 +258,38 @@
     background: var(--color-accent-strong);
   }
 
+  /* Sign-in screen: light borders on the dark card, deep teal selected tab, light-bordered logo. */
+  :root[data-theme='dark'] .auth-card {
+    border-color: #e9f7f5;
+    box-shadow: 8px 8px 0 var(--dark-shadow);
+  }
+  :root[data-theme='dark'] .auth-tab + .auth-tab,
+  :root[data-theme='dark'] .auth-card .border-ink {
+    border-color: #e9f7f5;
+  }
+  :root[data-theme='dark'] .auth-tab-selected {
+    background: var(--dark-select);
+    color: var(--dark-on-select);
+  }
+  :root[data-theme='dark'] .auth-mark {
+    border-color: #e9f7f5;
+    box-shadow: 3px 3px 0 var(--dark-shadow);
+  }
+  @media (max-width: 540px) {
+    :root[data-theme='dark'] .auth-card {
+      box-shadow: 5px 5px 0 var(--dark-shadow);
+    }
+  }
+
+  /* Browser autofill paints its own pale background: keep autofilled text readable on the dark fields. */
+  :root[data-theme='dark'] input:-webkit-autofill,
+  :root[data-theme='dark'] input:-webkit-autofill:hover,
+  :root[data-theme='dark'] input:-webkit-autofill:focus {
+    -webkit-text-fill-color: #e9f7f5;
+    box-shadow: 0 0 0 1000px #0c1b29 inset;
+    caret-color: #e9f7f5;
+  }
+
   @media (max-width: 640px) {
     :root[data-theme='dark'] .neo-panel,
     :root[data-theme='dark'] .neo-report {

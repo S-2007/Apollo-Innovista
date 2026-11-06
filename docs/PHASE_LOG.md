@@ -1034,3 +1034,20 @@ in the light theme, an amber sun and "Light" in the dark theme. Phones show the 
 its rows. aria-label, aria-pressed and the tooltip are unchanged.
 **Checked (production build):** 1024 px: the toggle is 80 px wide on the session row, no overflow; 375 px: icon
 only (42 px), no horizontal scroll; both icons render and the theme still switches and is saved.
+
+## Phase 3.42: redesigned sign-in screen; sign-out waits for the server (2026-11-06)
+
+**Built:** the sign-in / create-account screen now matches the dashboard: the workspace's wave background, a
+two-column layout above 900 px (Apollo mark, "Evidence, not guesswork.", three benefits; a divider; the card) and
+one column below it, a 470 px card with a 2 px border and 8 px hard shadow, Sign in / Create account tabs with a
+mint (light) or deep-teal (dark) selected state, and the theme toggle top right. The toggle is now one shared
+component (components/ThemeToggle.tsx) used by the top bar and this screen, so the theme survives sign-out and
+sign-in. The form keeps the same fields, API calls, validation and errors; it adds aria-busy, 44 px fields, and a
+ref guard so a double click or Enter + click sends one request (the busy state alone let three through when
+fired in the same moment). Sign out now waits for POST /api/auth/logout: success shows the sign-in screen, a
+failure keeps the user signed in and shows "Could not sign out: ..." in the top bar (a 401 counts as signed out).
+Dark theme: light card borders, deep-teal tab, readable browser autofill.
+**Checked (production build, local test database):** failed sign-out (forced 500) kept the session; real sign-out
+showed the sign-in screen at once, theme kept; wrong password showed "Incorrect email or password."; three
+submits in one moment sent one request; registration (short password refused, then created) signed in; the
+session came back after a refresh; sign-out and sign-in again worked; 1366, 820 and 375 px: no horizontal scroll.
